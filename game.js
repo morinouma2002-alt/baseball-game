@@ -178,10 +178,12 @@ function setupPitch() {
 }
 
 function doSwing() {
-  if (!g || g.swung) return;
+  if (!g) return;
+  // 何度でもスイング可。ただし直前のスイングが振り終わるまで(約0.2秒)は再スイング不可
+  if (g.swingT !== null && g.swingT < 0.2) return;
   if (g.phase === "windup" || g.phase === "intro") {
-    // 投げる前の空振り: スイングは使い切り
-    g.swung = true; g.swingT = 0; g.wasted = true;
+    // 投げる前の空振り: この球のスイングは消費しない(また振れる)
+    g.swingT = 0; g.wasted = true;
     sfx.swing();
     return;
   }
