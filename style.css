@@ -1,0 +1,28 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #2b2a45;
+  overflow: hidden;
+}
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+canvas {
+  display: block;
+  width: 100%;
+  max-width: calc(100vh * 16 / 9);
+  max-height: 100vh;
+  aspect-ratio: 16 / 9;
+  background: #87ceeb;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+noscript {
+  color: #fff;
+  position: absolute;
+}
