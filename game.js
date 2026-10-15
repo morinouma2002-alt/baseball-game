@@ -642,8 +642,7 @@ function buildBackground() {
   c.fillStyle = "#223a2c"; c.fillRect(66, 62, 168, 52);
   c.fillStyle = "#e8e4d0"; c.fillRect(66, 62, 168, 2); c.fillRect(66, 112, 168, 2);
   c.fillStyle = "#14231a"; c.fillRect(72, 68, 156, 40);
-  c.fillStyle = "#f4d35a"; c.font = "bold 13px " + FONT; c.textAlign = "center"; c.textBaseline = "middle";
-  c.fillText("サークル球場", 150, 79);
+  c.textAlign = "center"; c.textBaseline = "middle";
   c.fillStyle = "#e0e0d0";
   for (i = 0; i < 9; i++) { c.fillRect(82 + i * 16, 92, 12, 10); }
   c.fillStyle = "#14231a";
@@ -657,8 +656,7 @@ function buildBackground() {
   for (i = 0; i < 6; i++) {
     var ax = 6 + i * 133;
     if (i === 2 || i === 3) continue;
-    c.fillStyle = ads[i][0]; c.fillRect(ax, 123, 120, 14);
-    c.fillStyle = "#fff"; c.fillText(ads[i][1], ax + 60, 130.5);
+    c.fillStyle = ads[i][0]; c.fillRect(ax, 123, 120, 14);   // 文字なしの色つき看板
   }
   // 中央の距離表示
   c.fillStyle = "#f2f2e6"; c.fillRect(342, 121, 116, 18);
@@ -1210,6 +1208,80 @@ function upgrade(key) {
   sfx.clear();
 }
 
+// ストライクゾーン(3x3の薄いマス目) + バットが届く範囲のワク(四すみ)
+function drawStrikeZone() {
+  var x0 = PLATE.x - 32, y0 = ZONE_Y - 34, w = 64, h = 68, i;
+  ctx.save();
+  ctx.lineJoin = "round";
+  // バットが届く範囲(カーソルが動ける範囲)
+  var zx = ZONE.x0, zy = ZONE.y0, zw = ZONE.x1 - ZONE.x0, zh = ZONE.y1 - ZONE.y0, L = 12;
+  var corners = [[zx, zy, 1, 1], [zx + zw, zy, -1, 1], [zx, zy + zh, 1, -1], [zx + zw, zy + zh, -1, -1]];
+  function brackets() {
+    ctx.beginPath();
+    for (i = 0; i < 4; i++) {
+      var c = corners[i];
+      ctx.moveTo(c[0] + c[2] * L, c[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(c[0], c[1] + c[3] * L);
+    }
+    ctx.stroke();
+  }
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(0,0,0,0.45)"; ctx.lineWidth = 4.5; brackets();
+  ctx.strokeStyle = "rgba(255,240,150,0.85)"; ctx.lineWidth = 2; brackets();
+  // ストライクゾーン本体
+  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(x0, y0, w, h);
+  function grid() {
+    ctx.beginPath();
+    for (i = 1; i < 3; i++) {
+      ctx.moveTo(x0 + w * i / 3, y0); ctx.lineTo(x0 + w * i / 3, y0 + h);
+      ctx.moveTo(x0, y0 + h * i / 3); ctx.lineTo(x0 + w, y0 + h * i / 3);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.25)"; ctx.lineWidth = 2.5; grid();
+  ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1; grid();
+  ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 4.5; ctx.strokeRect(x0, y0, w, h);
+  ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 2; ctx.strokeRect(x0, y0, w, h);
+  ctx.restore();
+}
+
+// バットの打つ位置のカーソル(位置だけを示す。タイミングは示さない)
+// 内側のだ円 = ボールに当たる範囲(横 REACH_H x 縦 reachV)、中心 = バットが通る点
+function drawAimCursor() {
+  var x = aim.x, y = aim.y, i;
+  var swinging = g.swingT !== null;
+  var rx = REACH_H, ry = reachV(save.levels.meet);
+  var pulse = swinging ? 0 : Math.sin(performance.now() / 260);
+  var k = swinging ? 0.82 + 0.1 * Math.sin(g.swingT * 60) : 1 + 0.05 * pulse;
+  var ring = 9 * k;
+  ctx.save();
+  ctx.lineCap = "round";
+  // 当たる範囲(うすいだ円)
+  ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2);
+  ctx.fillStyle = swinging ? "rgba(255,236,120,0.28)" : "rgba(255,255,255,0.16)"; ctx.fill();
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 3.5; ctx.stroke();
+  ctx.strokeStyle = "rgba(255,236,120,0.95)"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.setLineDash([]);
+  // 十字の目盛り
+  function ticks() {
+    ctx.beginPath();
+    ctx.moveTo(x - ring - 8, y); ctx.lineTo(x - ring + 3, y);
+    ctx.moveTo(x + ring - 3, y); ctx.lineTo(x + ring + 8, y);
+    ctx.moveTo(x, y - ring - 8); ctx.lineTo(x, y - ring + 3);
+    ctx.moveTo(x, y + ring - 3); ctx.lineTo(x, y + ring + 8);
+    ctx.stroke();
+  }
+  var col = swinging ? "#ffd23a" : "#ffffff";
+  ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke(); ticks();
+  ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke(); ticks();
+  // 中心点
+  circle(x, y, 3.2, "rgba(0,0,0,0.75)");
+  circle(x, y, 2, "#ff8a1f");
+  ctx.restore();
+}
+
 function drawBatting() {
   var st = g.stage;
   var hrNow = g.out && g.out.kind === "hr" && (g.phase === "flight" || g.phase === "result");
@@ -1224,11 +1296,7 @@ function drawBatting() {
   drawField(true, hrNow);
   ctx.restore();
 
-  // ストライクゾーン
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-  ctx.strokeRect(PLATE.x - 32, ZONE_Y - 34, 64, 68);
-  ctx.restore();
+  drawStrikeZone();
 
   // ピッチャー
   var wind = 0;
@@ -1263,6 +1331,7 @@ function drawBatting() {
   }
 
   drawBatter(aim.x, aim.y, g.swingT);
+  if (g.phase === "windup" || g.phase === "pitch") drawAimCursor();
 
   // ポップアップ
   var showPop = false, txt = "", sub = "", sub2 = "";
