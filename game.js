@@ -78,7 +78,20 @@ function classify(d, ev, ex, meetLv, powerLv, rnd) {
 function defaultSave() {
   var c = [], b = [];
   for (var i = 0; i < STAGES.length; i++) { c.push(false); b.push(0); }
-  return { v: 2, coins: 0, cleared: c, best: b, levels: { power: 0, meet: 0 }, mute: false };
+  return { v: 2, coins: 0, cleared: c, best: b, levels: { power: 0, meet: 0 }, mute: false, sens: 1, bgm: 50, se: 80 };
+}
+// いどう感度(バット/バッターの動かしやすさ)。0.3〜3.0、0.1きざみ、ふつうは1.0
+var SENS_MIN = 0.3, SENS_MAX = 3.0;
+function clampSens(v) {
+  v = Number(v);
+  if (!isFinite(v)) return 1;
+  return Math.round(Math.max(SENS_MIN, Math.min(SENS_MAX, v)) * 10) / 10;
+}
+// 音量(%)。0〜100、10きざみ
+function clampVol(v) {
+  v = Number(v);
+  if (!isFinite(v)) return 50;
+  return Math.round(Math.max(0, Math.min(100, v)) / 10) * 10;
 }
 function clampInt(n, lo, hi) {
   n = Math.floor(Number(n));
@@ -101,6 +114,9 @@ function loadSave() {
       s.levels[STATS[k].key] = clampInt(o.levels && o.levels[STATS[k].key], 0, MAX_LV);
     }
     s.mute = o.mute === true;
+    s.bgm = o.bgm === undefined ? 50 : clampVol(o.bgm);   // 古いセーブには無いので初期値(BGM 50% / SE 80%)
+    s.se = o.se === undefined ? 80 : clampVol(o.se);
+    s.sens = o.sens === undefined ? 1 : clampSens(o.sens);   // 古いセーブには無いのでふつう(1.0)
     if (o.v !== 2) {
       // v1 -> v2: 選球眼は廃止。使ったぶんのコインを返す
       var eyeLv = clampInt(o.levels && o.levels.eye, 0, MAX_LV);
@@ -128,13 +144,13 @@ function initAudio() {
   } catch (e) { actx = null; }
 }
 function beep(freq, dur, type, vol, delay) {
-  if (save.mute || !actx) return;
+  if (save.mute || !actx || save.se <= 0) return;
   try {
     var t0 = actx.currentTime + (delay || 0);
     var o = actx.createOscillator(), g = actx.createGain();
     o.type = type || "square";
     o.frequency.value = freq;
-    g.gain.setValueAtTime(vol || 0.08, t0);
+    g.gain.setValueAtTime((vol || 0.08) * save.se / 80, t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     o.connect(g); g.connect(actx.destination);
     o.start(t0); o.stop(t0 + dur + 0.02);
@@ -142,7 +158,7 @@ function beep(freq, dur, type, vol, delay) {
 }
 // ノイズ音(風切り音・歓声など)。freq はフィルタ中心周波数、sweep は終わりの周波数
 function noiseBurst(dur, freq, vol, delay, sweep) {
-  if (save.mute || !actx) return;
+  if (save.mute || !actx || save.se <= 0) return;
   try {
     var t0 = actx.currentTime + (delay || 0);
     var n = Math.max(1, Math.floor(actx.sampleRate * dur));
@@ -154,7 +170,7 @@ function noiseBurst(dur, freq, vol, delay, sweep) {
     f.frequency.setValueAtTime(freq, t0);
     if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t0 + dur);
     var gn = actx.createGain();
-    gn.gain.setValueAtTime(vol, t0);
+    gn.gain.setValueAtTime(vol * save.se / 80, t0);
     gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(f); f.connect(gn); gn.connect(actx.destination);
     src.start(t0); src.stop(t0 + dur + 0.02);
@@ -172,6 +188,38 @@ var sfx = {
   fail:  function () { noiseBurst(0.6, 400, 0.12, 0, 200); beep(300, 0.2, "triangle", 0.1); beep(220, 0.2, "triangle", 0.1, 0.2); beep(160, 0.35, "triangle", 0.1, 0.4); }
 };
 
+// ---------- BGM(WebAudioで作る軽いループ。外部音源なし) ----------
+// Cメジャーのやさしい8小節ループ。メロディ(三角波) + ベース(サイン波)
+var BGM_MEL = [523, 659, 784, 659, 587, 698, 880, 698, 659, 784, 1047, 784, 698, 587, 523, 0];
+var BGM_BASS = [131, 131, 175, 175, 196, 196, 131, 131];
+var BGM_STEP = 0.3;
+var bgmNext = 0, bgmIdx = 0;
+function bgmNote(freq, t0, dur, type, vol) {
+  var o = actx.createOscillator(), gn = actx.createGain();
+  o.type = type; o.frequency.value = freq;
+  gn.gain.setValueAtTime(vol, t0);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(gn); gn.connect(actx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+// 毎フレーム呼ぶ。少し先の音までを予約していく(最初のクリック/キー後に actx ができてから鳴る)
+function bgmTick() {
+  if (!actx || actx.state !== "running") return;
+  if (save.mute || save.bgm <= 0 || !(scene === "title" || scene === "stageSelect" || scene === "options" || scene === "batting")) {
+    bgmNext = 0; return;
+  }
+  try {
+    var now = actx.currentTime;
+    if (bgmNext < now) bgmNext = now + 0.05;
+    var v = 0.07 * save.bgm / 100;
+    while (bgmNext < now + 0.4) {
+      var m = BGM_MEL[bgmIdx % BGM_MEL.length];
+      if (m) bgmNote(m, bgmNext, BGM_STEP * 0.9, "triangle", v);
+      if (bgmIdx % 2 === 0) bgmNote(BGM_BASS[(bgmIdx >> 1) % BGM_BASS.length], bgmNext, BGM_STEP * 1.8, "sine", v * 1.2);
+      bgmNext += BGM_STEP; bgmIdx++;
+    }
+  } catch (e) { /* 音が出なくても続行 */ }
+}
 // ---------- 状態 ----------
 var scene = "title";
 var focusId = null;
@@ -220,9 +268,12 @@ function setupPitch() {
 }
 
 function setAimTarget(p) {
-  // 画面の横位置(0〜800)を、狭いバット範囲に割り当てる。バッターは左固定。
-  aimTarget.x = ZONE.x0 + clamp(p.x / 800, 0, 1) * (ZONE.x1 - ZONE.x0);
-  aimTarget.y = clamp(p.y, ZONE.y0, ZONE.y1);
+  // 画面の位置を、狭いバット範囲に割り当てる。バッターは左固定。
+  // 感度が高いほどポインタを少し動かしただけでバットが大きく動く(中心からの距離 x 感度)
+  var sens = save.sens;
+  var cx = (ZONE.x0 + ZONE.x1) / 2, cy = (ZONE.y0 + ZONE.y1) / 2;
+  aimTarget.x = clamp(cx + (clamp(p.x / 800, 0, 1) - 0.5) * (ZONE.x1 - ZONE.x0) * sens, ZONE.x0, ZONE.x1);
+  aimTarget.y = clamp(cy + (p.y - ZONE_Y) * sens, ZONE.y0, ZONE.y1);
 }
 
 // スイング開始。どのフェーズでも振れる(空振りのアニメだけになる)。
@@ -303,7 +354,7 @@ function updateBatting(dt) {
     if (g.swingT >= SWING_DUR) g.swingT = null;
   }
   // --- キーボードでバットを動かす ---
-  var sp = 360 * dt;
+  var sp = 360 * dt * save.sens;
   if (keysDown.ArrowLeft)  aimTarget.x = clamp(aimTarget.x - sp, ZONE.x0, ZONE.x1);
   if (keysDown.ArrowRight) aimTarget.x = clamp(aimTarget.x + sp, ZONE.x0, ZONE.x1);
   if (keysDown.ArrowUp)    aimTarget.y = clamp(aimTarget.y - sp, ZONE.y0, ZONE.y1);
@@ -348,6 +399,7 @@ function updateBatting(dt) {
 
 function update(dt) {
   time += dt;
+  bgmTick();
   if (scene === "batting" && g) updateBatting(dt);
 }
 
@@ -405,10 +457,19 @@ function activateFocused() {
   if (list.length) activate(list[0]);
 }
 
+var optionsFrom = "title";
+function openOptions() { optionsFrom = scene; releaseAll(); go("options"); }
+function changeVol(key, d) {
+  var n = clampVol(save[key] + d);
+  if (n === save[key]) return;
+  save[key] = n; saveGame();
+  if (key === "se") sfx.click();
+}
 function toggleMute() { save.mute = !save.mute; saveGame(); if (!save.mute) { initAudio(); sfx.click(); } }
 
 function goBack() {
   if (scene === "stageSelect") go("title");
+  else if (scene === "options") go(optionsFrom);
   else if (scene === "status" || scene === "batting" || scene === "result") go("stageSelect");
 }
 
@@ -580,41 +641,128 @@ function drawPerson(x, y, s, o) {
   ctx.restore();
 }
 
-var BAT_LEN = 62;
-// バッターの体は左の定位置に固定。バットの位置(ax, ay)に合わせて少しだけうろうろする。
-function drawBatter(ax, ay, swingT) {
-  var bodyX = 285 + (ax - ZONE.x0) * 0.3 + (ay - ZONE_Y) * 0.1;
-  drawPerson(bodyX, 412, 1.0, { cap: "#ff6f91", uni: "#ff9ec4", skin: "#ffe0bd", pants: "#fff" });
-  drawBat(bodyX + 8, 360, ax - 47, ay, swingT);
+var BAT_LEN = 96;
+// 関節の長さは固定。うでは伸びず、ひじ・ひざが曲がって届かせる。
+var ARM_L = 30, LEG_L = 24, TORSO_L = 34, HIP_Y = 372;
+function lerp(a, b, t) { return a + (b - a) * t; }
+// 2関節IK。(px,py)から(tx,ty)へ、長さ l1,l2 は一定。ひじ/ひざは (prx,pry) 側へ曲げる。
+// 遠すぎるときは手の位置のほうを届く範囲にそろえる(長さは変えない)。
+function ik(px, py, tx, ty, l1, l2, prx, pry) {
+  var dx = tx - px, dy = ty - py, d = Math.sqrt(dx * dx + dy * dy);
+  var max = l1 + l2 - 0.01;
+  if (d < 0.001) { dx = 0.001; dy = 0; d = 0.001; }
+  if (d > max) { tx = px + dx / d * max; ty = py + dy / d * max; dx = tx - px; dy = ty - py; d = max; }
+  var a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  var h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  var ux = dx / d, uy = dy / d, mx = px + ux * a, my = py + uy * a;
+  var e1x = mx - uy * h, e1y = my + ux * h, e2x = mx + uy * h, e2y = my - ux * h;
+  var s1 = (e1x - px) * prx + (e1y - py) * pry, s2 = (e2x - px) * prx + (e2y - py) * pry;
+  return s1 >= s2 ? { ex: e1x, ey: e1y, tx: tx, ty: ty } : { ex: e2x, ey: e2y, tx: tx, ty: ty };
 }
-// 角度: -110度(構え) -> 0度(ボールの位置を通る, swingT=CONTACT_SW) -> 70度(振り抜き)
-function drawBat(sx, sy, px, py, swingT) {
-  var ang;
-  if (swingT === null) {
-    ang = -110 + Math.sin(time * 4) * 2;
-  } else if (swingT < CONTACT_SW) {
-    var a = swingT / CONTACT_SW;
-    ang = -110 + 110 * (a * a);
-  } else {
-    var b = Math.min(1, (swingT - CONTACT_SW) / (SWING_DUR - CONTACT_SW));
-    ang = 70 * (1 - Math.pow(1 - b, 2));
+function limb(x0, y0, x1, y1, x2, y2, w1, c1, w2, c2) {
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = c1; ctx.lineWidth = w1;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.strokeStyle = c2; ctx.lineWidth = w2;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// バッターの体は左の定位置に固定。バットの位置(ax, ay)に合わせて、体の傾きとバットの角度を変える
+// (うでを伸ばすのではなく、重心の移動・前傾・バットの角度で高さや前後を表す)。
+// swingT: null=構え / 数値=スイング中。CONTACT_SW でバットが(ax, ay)を通る。
+function drawBatter(ax, ay, swingT) {
+  var D = Math.PI / 180;
+  var skin = "#ffe0bd", uni = "#ff9ec4", cap = "#ff6f91";
+  // --- スイングの進み具合 w: 0=構え 1=ミートの瞬間 2=振り抜き ---
+  var w = 0;
+  if (swingT !== null) {
+    if (swingT < CONTACT_SW) { var a = swingT / CONTACT_SW; w = a * a; }
+    else { var b = Math.min(1, (swingT - CONTACT_SW) / (SWING_DUR - CONTACT_SW)); w = 1 + (1 - Math.pow(1 - b, 2)); }
   }
-  ang = ang * Math.PI / 180;
-  // うで
+  var w1 = Math.min(w, 1), w2 = Math.max(0, w - 1);
+  // 肩と腰のひねり(1=横向き 0=正面)。腰が先に回る
+  var rs = w <= 1 ? lerp(0.6, 0, w) : lerp(0, -0.5, w2);
+  var rh = w <= 1 ? lerp(0.5, -0.2, Math.min(1, w * 1.5)) : lerp(-0.2, -0.5, w2);
+  // --- 足は地面に固定。前足だけ少し踏み込む ---
+  var baseX = 288 + (ax - ZONE.x0) * 0.25;
+  var fl = { x: baseX - 22, y: 412 }, fr = { x: baseX + 22 + 5 * w1, y: 412 };
+  var hx = baseX + 6 * w1 + (w2 > 0 ? 2 : 0);
+  var hh = 10 * Math.cos(rh);
+  var hlx = hx - hh, hrx = hx + hh;
+  // --- 上半身の傾き(前に出す/低く構える) ---
+  var phi = 0.08 + 0.22 * (ax - ZONE.x0) / (ZONE.x1 - ZONE.x0) + 0.12 * (ay - ZONE_Y) / 100 + 0.1 * w1;
+  var sx = hx + TORSO_L * Math.sin(phi), sy = HIP_Y - TORSO_L * Math.cos(phi);
+  var hw = 15 * Math.cos(rs);
+  var slx = sx - hw, srx = sx + hw;
+  // --- バットと手の位置 ---
+  var R = BAT_LEN * GREEN_C;
+  var kk = clamp((ay - ZONE_Y) / 100, -0.5, 0.5);
+  var thTilt = kk * 0.9;
+  var gcx = ax - R * Math.cos(thTilt), gcy = ay - R * Math.sin(thTilt);
+  var cdx = gcx - sx, cdy = gcy - sy, cd = Math.sqrt(cdx * cdx + cdy * cdy);
+  if (cd > 44) { gcx = sx + cdx / cd * 44; gcy = sy + cdy / cd * 44; }
+  var thc = Math.atan2(ay - gcy, ax - gcx);        // ミートの瞬間のバットの向き(必ず(ax,ay)を通る)
+  var th0 = -98 * D + Math.sin(time * 4) * 0.03;
+  var gsx = sx + 26, gsy = sy - 4 + Math.sin(time * 4) * 1.2;
+  var gfx = sx + 10, gfy = sy - 2, thf = thc + 55 * D;
+  var gx, gy, th;
+  if (w <= 1) { gx = lerp(gsx, gcx, w); gy = lerp(gsy, gcy, w); th = lerp(th0, thc, w); }
+  else { gx = lerp(gcx, gfx, w2); gy = lerp(gcy, gfy, w2); th = lerp(thc, thf, w2); }
+  var dxb = Math.cos(th), dyb = Math.sin(th);
+
   ctx.save();
-  ctx.strokeStyle = "#ffe0bd"; ctx.lineWidth = 6; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
-  ctx.translate(px, py); ctx.rotate(ang);
+  // 影
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath(); ctx.ellipse(baseX + 3, 414, 38, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // 足(うしろ足 / 前足): 足を広げ、ひざを少し曲げる
+  var lk = ik(hlx, HIP_Y, fl.x, fl.y - 4, LEG_L, LEG_L, -1, 0.2);
+  var rk = ik(hrx, HIP_Y, fr.x, fr.y - 4, LEG_L, LEG_L, 1, 0.2);
+  limb(hlx, HIP_Y, lk.ex, lk.ey, lk.tx, lk.ty, 11, "#fff", 10, "#fff");
+  limb(hrx, HIP_Y, rk.ex, rk.ey, rk.tx, rk.ty, 11, "#fff", 10, "#fff");
+  ctx.fillStyle = "#444";
+  roundRect(fl.x - 9, fl.y - 6, 17, 7, 3); ctx.fill();
+  roundRect(fr.x - 7, fr.y - 6, 17, 7, 3); ctx.fill();
+  // 胴体: 肩の線と腰の線をつないだ形(ひねると幅が変わる)
+  ctx.fillStyle = uni; ctx.strokeStyle = uni; ctx.lineWidth = 8; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(slx, sy); ctx.lineTo(srx, sy); ctx.lineTo(hrx + 1, HIP_Y); ctx.lineTo(hlx - 1, HIP_Y); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(hlx - 2, HIP_Y - 3); ctx.lineTo(hrx + 2, HIP_Y - 3); ctx.stroke();
+  // 頭 + バッティングヘルメット(ピッチャー側を向く)
+  var hdx = sx + 18 * Math.sin(phi) + 2, hdy = sy - 18 * Math.cos(phi) - 3;
+  ctx.strokeStyle = skin; ctx.lineWidth = 7; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hdx, hdy + 8); ctx.stroke();
+  circle(hdx, hdy, 14, skin);
+  circle(hdx + 5, hdy + 1, 1.8, "#333"); circle(hdx + 11, hdy + 1, 1.8, "#333");
+  circle(hdx + 8, hdy + 7, 2.5, "rgba(255,120,140,0.5)");
+  ctx.strokeStyle = "#a33"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(hdx + 8, hdy + 5, 3, 0.3, Math.PI - 0.3); ctx.stroke();
+  ctx.fillStyle = cap;
+  ctx.beginPath(); ctx.arc(hdx, hdy - 1, 15, Math.PI, 0); ctx.closePath(); ctx.fill();
+  roundRect(hdx - 15, hdy - 3, 5, 14, 2); ctx.fill();           // 耳あて
+  roundRect(hdx + 4, hdy - 5, 18, 4, 2); ctx.fill();            // つば
+  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(hdx, hdy - 1, 11, Math.PI * 1.15, Math.PI * 1.55); ctx.stroke();
+  // うしろ側のうで
+  var a1 = ik(slx, sy + 2, gx, gy, ARM_L, ARM_L, -0.4, 1);
+  limb(slx, sy + 2, a1.ex, a1.ey, a1.tx, a1.ty, 9, uni, 7, skin);
   // バット
-  ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(BAT_LEN, 0); ctx.stroke();
-  // スイートスポット(緑): ミートで広がる
-  var gh = greenHalfU(save.levels.meet);
-  ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 7;
+  ctx.save();
+  ctx.translate(gx, gy); ctx.rotate(th);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BAT_LEN * 0.3, 0); ctx.stroke();
+  ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(BAT_LEN * 0.3, 0); ctx.lineTo(BAT_LEN, 0); ctx.stroke();
+  var gh = greenHalfU(save.levels.meet);       // スイートスポット(緑): ミートで広がる
+  ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 8;
   ctx.beginPath(); ctx.moveTo(BAT_LEN * (GREEN_C - gh), 0); ctx.lineTo(BAT_LEN * (GREEN_C + gh), 0); ctx.stroke();
   ctx.restore();
+  // 前側のうで(両手でバットをにぎる)
+  var a2 = ik(srx, sy + 2, gx + dxb * 8, gy + dyb * 8, ARM_L, ARM_L, 0.4, 1);
+  limb(srx, sy + 2, a2.ex, a2.ey, a2.tx, a2.ty, 9, uni, 7, skin);
+  circle(a1.tx, a1.ty, 4, skin); circle(a2.tx, a2.ty, 4, skin);
+  ctx.restore();
 }
-
 function drawPitcher(x, y, s, wind) {
   drawPerson(x, y, s, { cap: "#4aa3ff", uni: "#9bd1ff", skin: "#f5cfa0", pants: "#e8f1ff" });
   // 腕: 投球前は頭上へ、リリースで前へ
@@ -664,6 +812,14 @@ function ballAt(pitchT) {
   return { x: x, y: y, r: 3 + 10 * e, a: a, sx: x, sy: gy };
 }
 
+function drawOptionsButton(x, y, w, h) {
+  button("options", x, y, w, h, "", openOptions, {
+    render: function (x, y, w, h) {
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; roundRect(x, y, w, h, h / 2); ctx.fill();
+      text("オプション", x + w / 2, y + h / 2 + 1, 13, "#6a5acd");
+    }
+  });
+}
 function drawMute() {
   button("mute", 726, 8, 66, 30, "", toggleMute, {
     render: function (x, y, w, h, f) {
@@ -671,6 +827,29 @@ function drawMute() {
       text(save.mute ? "おと:OFF" : "おと:ON", x + w / 2, y + h / 2 + 1, 13, "#6a5acd");
     }
   });
+}
+
+function changeSens(d) {
+  var n = clampSens(save.sens + d);
+  if (n === save.sens) return;
+  save.sens = n; saveGame();
+}
+// いどう感度の [-] 値 [+]。large=ステージ選択用 / それ以外=バッティング中の小さい表示
+function drawSens(large) {
+  var x0 = large ? 282 : 560, y0 = large ? 380 : 60, bw = large ? 44 : 28, bh = large ? 44 : 26;
+  var cx = large ? 400 : 665;
+  if (large) {
+    text("いどうかんど", cx, y0 + 6, 13, "#6a5acd");
+    text(save.sens.toFixed(1) + "x", cx, y0 + 30, 22, "#4a3f8f");
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; roundRect(x0, y0, 210, bh, 13); ctx.fill();
+    text("かんど " + save.sens.toFixed(1) + "x", cx, y0 + bh / 2 + 1, 14, "#4a3f8f");
+  }
+  var xm = x0, xp = large ? x0 + 192 : x0 + 210 - bw;
+  button("sensDown", xm, y0, bw, bh, "-", function () { changeSens(-0.1); },
+         { enabled: save.sens > SENS_MIN, size: large ? 28 : 18, color: "#6a8cff" });
+  button("sensUp", xp, y0, bw, bh, "+", function () { changeSens(0.1); },
+         { enabled: save.sens < SENS_MAX, size: large ? 28 : 18, color: "#6a8cff" });
 }
 
 // ---------- 各画面 ----------
@@ -683,8 +862,9 @@ function drawTitle() {
   text("ホームランダービー", 400, 118, 48, "#ffffff", "center", "#ff6f91");
   text("バットを動かして、緑のところに当ててホームラン!", 400, 160, 17, "#6a5acd", "center", null, 470);
   button("start", 290, 236, 220, 56, "スタート!", function () { go("stageSelect"); }, { size: 28, color: "#ff6f91" });
-  button("reset", 322, 304, 156, 30, "データを消す", resetData, { size: 14, color: "#9a8fd1" });
-  text("マウス / タップ / 矢印キーでバットを動かして、クリック / スペースでスイング", 400, 360, 14, "#fff", "center", "rgba(0,0,0,0.35)", 700);
+  button("options", 322, 300, 156, 30, "オプション", openOptions, { size: 14, color: "#6a8cff" });
+  button("reset", 322, 336, 156, 28, "データを消す", resetData, { size: 14, color: "#9a8fd1" });
+  text("マウス / タップ / 矢印キーでバットを動かして、クリック / スペースでスイング", 400, 392, 14, "#fff", "center", "rgba(0,0,0,0.35)", 700);
   drawMute();
 }
 
@@ -740,6 +920,8 @@ function drawStageSelect() {
   }
   button("status", 40, 378, 230, 52, "ステータス", function () { statusMsg = ""; go("status"); }, { size: 26, color: "#6a8cff" });
   button("back", 530, 378, 230, 52, "タイトルへ", function () { go("title"); }, { size: 22, color: "#9a8fd1" });
+  drawSens(true);
+  drawOptionsButton(640, 8, 80, 30);
   drawMute();
 }
 
@@ -886,9 +1068,30 @@ function drawBatting() {
       text("やめる", x + w / 2, y + h / 2 + 1, 14, "#6a5acd");
     }
   });
+  drawSens(false);
+  drawOptionsButton(690, 92, 80, 26);
   drawMute();
 }
 
+function optionsRow(y, label, valText, id, onDown, onUp, canDown, canUp) {
+  ctx.fillStyle = "rgba(255,255,255,0.9)"; roundRect(60, y, 680, 76, 18); ctx.fill();
+  text(label, 90, y + 38, 26, "#ff6f91", "left");
+  button(id + "Down", 420, y + 12, 64, 52, "-", onDown, { enabled: canDown, size: 30, color: "#6a8cff" });
+  text(valText, 540, y + 38, 28, "#4a3f8f");
+  button(id + "Up", 596, y + 12, 64, 52, "+", onUp, { enabled: canUp, size: 30, color: "#6a8cff" });
+}
+function drawOptions() {
+  drawBackdropSoft("#e3dcff", "#ffd9ec");
+  text("オプション", 400, 40, 34, "#fff", "center", "#6a5acd");
+  optionsRow(80, "いどうかんど", save.sens.toFixed(1) + "x", "oSens",
+    function () { changeSens(-0.1); }, function () { changeSens(0.1); }, save.sens > SENS_MIN, save.sens < SENS_MAX);
+  optionsRow(170, "BGM おんりょう", save.bgm + "%", "oBgm",
+    function () { changeVol("bgm", -10); }, function () { changeVol("bgm", 10); }, save.bgm > 0, save.bgm < 100);
+  optionsRow(260, "こうかおん おんりょう", save.se + "%", "oSe",
+    function () { changeVol("se", -10); }, function () { changeVol("se", 10); }, save.se > 0, save.se < 100);
+  button("back", 300, 366, 200, 52, "もどる", function () { go(optionsFrom); }, { size: 24, color: "#9a8fd1" });
+  drawMute();
+}
 function drawSparks(x, y, k) {
   ctx.save();
   ctx.strokeStyle = "rgba(255,230,80," + Math.max(0, 1 - k * 0.5) + ")"; ctx.lineWidth = 3; ctx.lineCap = "round";
@@ -936,6 +1139,7 @@ function render() {
   else if (scene === "status") drawStatus();
   else if (scene === "batting") drawBatting();
   else if (scene === "result") drawResult();
+  else if (scene === "options") drawOptions();
 }
 var last = 0;
 function frame(ts) {
@@ -956,6 +1160,7 @@ window.__HRD = {
   render: function () { render(); },
   go: go, startStage: startStage, doSwing: doSwing, upgrade: upgrade, resetData: resetData,
   setPaused: function (p) { paused = !!p; },
-  setSave: function (s) { save = s; }
+  setSave: function (s) { save = s; },
+  changeSens: changeSens, setAimTarget: setAimTarget
 };
 })();
