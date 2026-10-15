@@ -608,43 +608,13 @@ function drawField(withCrowd, cheer) {
   ctx.beginPath(); ctx.moveTo(386, 380); ctx.lineTo(414, 380); ctx.lineTo(414, 387); ctx.lineTo(400, 396); ctx.lineTo(386, 387); ctx.closePath(); ctx.fill();
 }
 
-// ふつうの人物(丸い頭 + 帽子 + ユニフォーム)
-// o: { cap, uni, skin, pants }
-function drawPerson(x, y, s, o) {
-  ctx.save();
-  ctx.translate(x, y); ctx.scale(s, s);
-  // 影
-  ctx.fillStyle = "rgba(0,0,0,0.15)";
-  ctx.beginPath(); ctx.ellipse(0, 2, 22, 6, 0, 0, Math.PI * 2); ctx.fill();
-  // 足
-  ctx.fillStyle = o.pants;
-  roundRect(-11, -34, 9, 32, 4); ctx.fill();
-  roundRect(2, -34, 9, 32, 4); ctx.fill();
-  ctx.fillStyle = "#444";
-  roundRect(-14, -5, 13, 6, 3); ctx.fill();
-  roundRect(1, -5, 13, 6, 3); ctx.fill();
-  // 体
-  ctx.fillStyle = o.uni;
-  roundRect(-16, -66, 32, 38, 10); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.fillRect(-16, -42, 32, 4);
-  // 頭
-  circle(0, -80, 15, o.skin);
-  // 帽子
-  ctx.fillStyle = o.cap;
-  ctx.beginPath(); ctx.arc(0, -82, 16, Math.PI, 0); ctx.closePath(); ctx.fill();
-  roundRect(-2, -86, 22, 5, 2); ctx.fill();
-  // 顔
-  circle(-6, -78, 2, "#333"); circle(6, -78, 2, "#333");
-  circle(-10, -73, 3, "rgba(255,120,140,0.5)"); circle(10, -73, 3, "rgba(255,120,140,0.5)");
-  ctx.strokeStyle = "#a33"; ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.arc(0, -74, 4, 0.2, Math.PI - 0.2); ctx.stroke();
-  ctx.restore();
-}
-
+// ---------- 人物(実際の野球選手の体型: 約7頭身) ----------
 var BAT_LEN = 96;
 // 関節の長さは固定。うでは伸びず、ひじ・ひざが曲がって届かせる。
-var ARM_L = 30, LEG_L = 24, TORSO_L = 34, HIP_Y = 372;
+var ARM1 = 31, ARM2 = 29, LEG_L = 36, TORSO_L = 44, HIP_Y = 350;
 function lerp(a, b, t) { return a + (b - a) * t; }
+function ss(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function mix3(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
 // 2関節IK。(px,py)から(tx,ty)へ、長さ l1,l2 は一定。ひじ/ひざは (prx,pry) 側へ曲げる。
 // 遠すぎるときは手の位置のほうを届く範囲にそろえる(長さは変えない)。
 function ik(px, py, tx, ty, l1, l2, prx, pry) {
@@ -666,12 +636,36 @@ function limb(x0, y0, x1, y1, x2, y2, w1, c1, w2, c2) {
   ctx.strokeStyle = c2; ctx.lineWidth = w2;
   ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
 }
+// 足: ふともも(ユニフォームのパンツ) + すね(すそ + ストッキング)
+function drawLeg(hx, hy, kx, ky, fx, fy, lw, pants, sock) {
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.strokeStyle = pants; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.stroke();
+  var mx = lerp(kx, fx, 0.3), my = lerp(ky, fy, 0.3);
+  ctx.lineWidth = lw - 1.5;
+  ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(mx, my); ctx.stroke();
+  ctx.strokeStyle = sock; ctx.lineWidth = lw - 5;
+  ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(fx, fy); ctx.stroke();
+}
+function drawShoe(x, y, dir, col) {
+  ctx.fillStyle = col;
+  roundRect(dir > 0 ? x - 7 : x - 11, y - 5, 18, 7, 3); ctx.fill();
+  ctx.fillStyle = "#ddd";
+  ctx.fillRect(dir > 0 ? x - 7 : x - 11, y + 1, 18, 1.5);
+}
+function drawNumber(x, y, str, col, size) {
+  ctx.fillStyle = col; ctx.font = "bold " + size + "px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(str, x, y);
+}
+
 // バッターの体は左の定位置に固定。バットの位置(ax, ay)に合わせて、体の傾きとバットの角度を変える
-// (うでを伸ばすのではなく、重心の移動・前傾・バットの角度で高さや前後を表す)。
+// (うでは伸ばさず、重心の移動・前傾・腰と肩の回転・バットの角度で高さや前後を表す)。
 // swingT: null=構え / 数値=スイング中。CONTACT_SW でバットが(ax, ay)を通る。
 function drawBatter(ax, ay, swingT) {
   var D = Math.PI / 180;
-  var skin = "#ffe0bd", uni = "#ff9ec4", cap = "#ff6f91";
+  var skin = "#f1c9a0", skinD = "#d9a97e", jersey = "#f7f4f5", trim = "#e8456f", helmet = "#d63a63";
+  var pantsC = "#f2f0f2", glove = "#34343f";
   // --- スイングの進み具合 w: 0=構え 1=ミートの瞬間 2=振り抜き ---
   var w = 0;
   if (swingT !== null) {
@@ -679,19 +673,19 @@ function drawBatter(ax, ay, swingT) {
     else { var b = Math.min(1, (swingT - CONTACT_SW) / (SWING_DUR - CONTACT_SW)); w = 1 + (1 - Math.pow(1 - b, 2)); }
   }
   var w1 = Math.min(w, 1), w2 = Math.max(0, w - 1);
-  // 肩と腰のひねり(1=横向き 0=正面)。腰が先に回る
-  var rs = w <= 1 ? lerp(0.6, 0, w) : lerp(0, -0.5, w2);
-  var rh = w <= 1 ? lerp(0.5, -0.2, Math.min(1, w * 1.5)) : lerp(-0.2, -0.5, w2);
-  // --- 足は地面に固定。前足だけ少し踏み込む ---
+  // 腰と肩のひねり(1付近=横向き 0=正面)。腰が先に回り、すこし遅れて肩が回る
+  var rh = w <= 1 ? lerp(1.0, 0.0, ss(0, 0.7, w)) : lerp(0, -0.4, w2);
+  var rs = w <= 1 ? lerp(1.1, 0.1, ss(0.25, 1, w)) : lerp(0.1, -0.5, w2);
+  // --- 足は地面に固定(足は広げ、ひざを曲げる)。前足だけ踏み出して着地 ---
   var baseX = 288 + (ax - ZONE.x0) * 0.25;
-  var fl = { x: baseX - 22, y: 412 }, fr = { x: baseX + 22 + 5 * w1, y: 412 };
-  var hx = baseX + 6 * w1 + (w2 > 0 ? 2 : 0);
-  var hh = 10 * Math.cos(rh);
+  var fl = { x: baseX - 24, y: 412 - 5 * w2 }, fr = { x: baseX + 24 + 16 * w1, y: 412 - 12 * Math.sin(Math.PI * w1) };
+  var hx = baseX + 8 * w1 + (w2 > 0 ? 2 : 0);
+  var hh = 9 * Math.cos(rh) + 2;
   var hlx = hx - hh, hrx = hx + hh;
   // --- 上半身の傾き(前に出す/低く構える) ---
   var phi = 0.08 + 0.22 * (ax - ZONE.x0) / (ZONE.x1 - ZONE.x0) + 0.12 * (ay - ZONE_Y) / 100 + 0.1 * w1;
   var sx = hx + TORSO_L * Math.sin(phi), sy = HIP_Y - TORSO_L * Math.cos(phi);
-  var hw = 15 * Math.cos(rs);
+  var hw = 17 * Math.cos(rs) + 2;
   var slx = sx - hw, srx = sx + hw;
   // --- バットと手の位置 ---
   var R = BAT_LEN * GREEN_C;
@@ -699,79 +693,189 @@ function drawBatter(ax, ay, swingT) {
   var thTilt = kk * 0.9;
   var gcx = ax - R * Math.cos(thTilt), gcy = ay - R * Math.sin(thTilt);
   var cdx = gcx - sx, cdy = gcy - sy, cd = Math.sqrt(cdx * cdx + cdy * cdy);
-  if (cd > 44) { gcx = sx + cdx / cd * 44; gcy = sy + cdy / cd * 44; }
+  if (cd > 42) { gcx = sx + cdx / cd * 42; gcy = sy + cdy / cd * 42; }
   var thc = Math.atan2(ay - gcy, ax - gcx);        // ミートの瞬間のバットの向き(必ず(ax,ay)を通る)
-  var th0 = -98 * D + Math.sin(time * 4) * 0.03;
-  var gsx = sx + 26, gsy = sy - 4 + Math.sin(time * 4) * 1.2;
-  var gfx = sx + 10, gfy = sy - 2, thf = thc + 55 * D;
+  var th0 = -112 * D + Math.sin(time * 4) * 0.03;
+  var gsx = sx - 8, gsy = sy - 2 + Math.sin(time * 4) * 1.2;   // 構え: 手はうしろの肩のそば
+  var gfx = sx - 4, gfy = sy - 14, thf = thc + 100 * D;        // 振り抜き: 手は前の肩の上へ、バットは背中側へ
   var gx, gy, th;
   if (w <= 1) { gx = lerp(gsx, gcx, w); gy = lerp(gsy, gcy, w); th = lerp(th0, thc, w); }
   else { gx = lerp(gcx, gfx, w2); gy = lerp(gcy, gfy, w2); th = lerp(thc, thf, w2); }
   var dxb = Math.cos(th), dyb = Math.sin(th);
 
+  function drawBatShape() {
+    ctx.save();
+    ctx.translate(gx, gy); ctx.rotate(th);
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BAT_LEN * 0.3, 0); ctx.stroke();
+    ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(BAT_LEN * 0.3, 0); ctx.lineTo(BAT_LEN, 0); ctx.stroke();
+    var gh = greenHalfU(save.levels.meet);       // スイートスポット(緑): ミートで広がる
+    ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(BAT_LEN * (GREEN_C - gh), 0); ctx.lineTo(BAT_LEN * (GREEN_C + gh), 0); ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.save();
   // 影
   ctx.fillStyle = "rgba(0,0,0,0.15)";
-  ctx.beginPath(); ctx.ellipse(baseX + 3, 414, 38, 7, 0, 0, Math.PI * 2); ctx.fill();
-  // 足(うしろ足 / 前足): 足を広げ、ひざを少し曲げる
-  var lk = ik(hlx, HIP_Y, fl.x, fl.y - 4, LEG_L, LEG_L, -1, 0.2);
-  var rk = ik(hrx, HIP_Y, fr.x, fr.y - 4, LEG_L, LEG_L, 1, 0.2);
-  limb(hlx, HIP_Y, lk.ex, lk.ey, lk.tx, lk.ty, 11, "#fff", 10, "#fff");
-  limb(hrx, HIP_Y, rk.ex, rk.ey, rk.tx, rk.ty, 11, "#fff", 10, "#fff");
-  ctx.fillStyle = "#444";
-  roundRect(fl.x - 9, fl.y - 6, 17, 7, 3); ctx.fill();
-  roundRect(fr.x - 7, fr.y - 6, 17, 7, 3); ctx.fill();
-  // 胴体: 肩の線と腰の線をつないだ形(ひねると幅が変わる)
-  ctx.fillStyle = uni; ctx.strokeStyle = uni; ctx.lineWidth = 8; ctx.lineJoin = "round";
-  ctx.beginPath(); ctx.moveTo(slx, sy); ctx.lineTo(srx, sy); ctx.lineTo(hrx + 1, HIP_Y); ctx.lineTo(hlx - 1, HIP_Y); ctx.closePath();
+  ctx.beginPath(); ctx.ellipse(baseX + 5, 414, 44, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // 振り抜きでは、バットは背中側に回る(体のうしろに描く)
+  if (w2 > 0.45) drawBatShape();
+  // 足(うしろ足 / 前足)
+  var lk = ik(hlx, HIP_Y, fl.x, fl.y - 6, LEG_L, LEG_L, 1, 0.1);
+  var rk = ik(hrx, HIP_Y, fr.x, fr.y - 6, LEG_L, LEG_L, 1, 0.1);
+  drawLeg(hlx, HIP_Y, lk.ex, lk.ey, lk.tx, lk.ty, 15, pantsC, trim);
+  drawLeg(hrx, HIP_Y, rk.ex, rk.ey, rk.tx, rk.ty, 15, pantsC, trim);
+  drawShoe(fl.x, fl.y, 1, "#26262e"); drawShoe(fr.x, fr.y, 1, "#26262e");
+  // パンツ + ベルト
+  ctx.fillStyle = pantsC;
+  roundRect(hlx - 7, HIP_Y - 6, hrx - hlx + 14, 16, 6); ctx.fill();
+  // ジャージの胴体: 肩の線と腰の線をつないだ形(ひねると幅が変わる)
+  ctx.fillStyle = jersey; ctx.strokeStyle = jersey; ctx.lineWidth = 9; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(slx, sy + 1); ctx.lineTo(srx, sy + 1); ctx.lineTo(hrx, HIP_Y - 6); ctx.lineTo(hlx, HIP_Y - 6); ctx.closePath();
   ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(hlx - 2, HIP_Y - 3); ctx.lineTo(hrx + 2, HIP_Y - 3); ctx.stroke();
-  // 頭 + バッティングヘルメット(ピッチャー側を向く)
-  var hdx = sx + 18 * Math.sin(phi) + 2, hdy = sy - 18 * Math.cos(phi) - 3;
-  ctx.strokeStyle = skin; ctx.lineWidth = 7; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hdx, hdy + 8); ctx.stroke();
-  circle(hdx, hdy, 14, skin);
-  circle(hdx + 5, hdy + 1, 1.8, "#333"); circle(hdx + 11, hdy + 1, 1.8, "#333");
-  circle(hdx + 8, hdy + 7, 2.5, "rgba(255,120,140,0.5)");
-  ctx.strokeStyle = "#a33"; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(hdx + 8, hdy + 5, 3, 0.3, Math.PI - 0.3); ctx.stroke();
-  ctx.fillStyle = cap;
-  ctx.beginPath(); ctx.arc(hdx, hdy - 1, 15, Math.PI, 0); ctx.closePath(); ctx.fill();
-  roundRect(hdx - 15, hdy - 3, 5, 14, 2); ctx.fill();           // 耳あて
-  roundRect(hdx + 4, hdy - 5, 18, 4, 2); ctx.fill();            // つば
-  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(hdx, hdy - 1, 11, Math.PI * 1.15, Math.PI * 1.55); ctx.stroke();
-  // うしろ側のうで
-  var a1 = ik(slx, sy + 2, gx, gy, ARM_L, ARM_L, -0.4, 1);
-  limb(slx, sy + 2, a1.ex, a1.ey, a1.tx, a1.ty, 9, uni, 7, skin);
-  // バット
-  ctx.save();
-  ctx.translate(gx, gy); ctx.rotate(th);
-  ctx.lineCap = "round";
-  ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BAT_LEN * 0.3, 0); ctx.stroke();
-  ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 8;
-  ctx.beginPath(); ctx.moveTo(BAT_LEN * 0.3, 0); ctx.lineTo(BAT_LEN, 0); ctx.stroke();
-  var gh = greenHalfU(save.levels.meet);       // スイートスポット(緑): ミートで広がる
-  ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 8;
-  ctx.beginPath(); ctx.moveTo(BAT_LEN * (GREEN_C - gh), 0); ctx.lineTo(BAT_LEN * (GREEN_C + gh), 0); ctx.stroke();
-  ctx.restore();
+  ctx.strokeStyle = trim; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(srx + 4, sy + 6); ctx.lineTo(hrx + 4, HIP_Y - 8); ctx.stroke();
+  ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(hlx - 5, HIP_Y - 4); ctx.lineTo(hrx + 5, HIP_Y - 4); ctx.stroke();
+  ctx.fillStyle = "#d8c36a"; ctx.fillRect(hx - 2, HIP_Y - 6, 4, 4);
+  drawNumber((slx + srx) / 2, (sy + HIP_Y) / 2 - 3, "7", trim, 13);
+  // 首 + 頭 + バッティングヘルメット(ピッチャー側を向く)
+  var hdx = sx + 20 * Math.sin(phi) + 3, hdy = sy - 20 * Math.cos(phi);
+  ctx.strokeStyle = skinD; ctx.lineWidth = 7; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(sx, sy + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
+  circle(hdx, hdy, 10.5, skin);
+  circle(hdx + 10, hdy + 2, 2.2, skin);                              // 鼻
+  circle(hdx + 5, hdy - 1, 1.3, "#2b2b33");                          // 目
+  ctx.strokeStyle = "#5a3a2a"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(hdx + 3, hdy - 3.5); ctx.lineTo(hdx + 8, hdy - 3); ctx.stroke();   // まゆ
+  ctx.strokeStyle = "#a5533d";
+  ctx.beginPath(); ctx.moveTo(hdx + 5, hdy + 6); ctx.lineTo(hdx + 8.5, hdy + 5.5); ctx.stroke(); // くち
+  ctx.fillStyle = helmet;
+  ctx.beginPath(); ctx.arc(hdx - 0.5, hdy - 1.5, 11.5, Math.PI, 0); ctx.lineTo(hdx + 11, hdy - 1.5); ctx.lineTo(hdx - 12, hdy - 1.5); ctx.closePath(); ctx.fill();
+  roundRect(hdx + 5, hdy - 4.5, 11, 3.2, 1.5); ctx.fill();            // つば
+  ctx.beginPath(); ctx.ellipse(hdx - 2, hdy + 2.5, 5.5, 7, 0, 0, Math.PI * 2); ctx.fill();   // 耳あて
+  ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.arc(hdx - 0.5, hdy - 1.5, 8, Math.PI * 1.15, Math.PI * 1.55); ctx.stroke();
+  // うしろ側のうで(上腕 + 前腕) + バッティンググローブ
+  var a1 = ik(slx, sy + 3, gx, gy, ARM1, ARM2, -0.4, 1);
+  limb(slx, sy + 3, a1.ex, a1.ey, a1.tx, a1.ty, 10, jersey, 7, skin);
+  circle(slx, sy + 3, 5.5, jersey);
+  if (w2 <= 0.45) drawBatShape();
   // 前側のうで(両手でバットをにぎる)
-  var a2 = ik(srx, sy + 2, gx + dxb * 8, gy + dyb * 8, ARM_L, ARM_L, 0.4, 1);
-  limb(srx, sy + 2, a2.ex, a2.ey, a2.tx, a2.ty, 9, uni, 7, skin);
-  circle(a1.tx, a1.ty, 4, skin); circle(a2.tx, a2.ty, 4, skin);
+  var a2 = ik(srx, sy + 3, gx + dxb * 8, gy + dyb * 8, ARM1, ARM2, 0.4, 1);
+  limb(srx, sy + 3, a2.ex, a2.ey, a2.tx, a2.ty, 10, jersey, 7, skin);
+  circle(srx, sy + 3, 5.5, jersey);
+  circle(a1.tx, a1.ty, 4, glove); circle(a2.tx, a2.ty, 4, glove);
   ctx.restore();
 }
-function drawPitcher(x, y, s, wind) {
-  drawPerson(x, y, s, { cap: "#4aa3ff", uni: "#9bd1ff", skin: "#f5cfa0", pants: "#e8f1ff" });
-  // 腕: 投球前は頭上へ、リリースで前へ
-  var a = -Math.PI / 2 + (wind < 1 ? -0.4 + wind * 0.4 : 0.7 * Math.min(1, (wind - 1) * 6));
+// 構えのままの立ち姿(タイトル・結果画面用)。足元(x, y)、大きさ sc
+function drawBatterStand(x, y, sc) {
   ctx.save();
-  ctx.translate(x + 14 * s, y - 60 * s);
-  ctx.rotate(a);
-  ctx.strokeStyle = "#f5cfa0"; ctx.lineWidth = 6 * s; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(24 * s, 0); ctx.stroke();
+  ctx.translate(x, y); ctx.scale(sc, sc); ctx.translate(-300.5, -412);
+  drawBatter(400, ZONE_Y, null);
+  ctx.restore();
+}
+
+// ピッチャー(遠くのマウンド): 7頭身。足元(x, y)、大きさ s(s=1で身長 約145)。
+// wind: 0〜1=ふりかぶり(1でリリース) / 1〜=リリース後の経過秒 / 2=フィニッシュ。左投げ。
+// 流れ: セット → ひざを上げる → ステップ → 腕を回す → リリース → フォロースルー
+var pitcherHand = { x: 404, y: 163 };      // 投げる手の画面上の位置(リリースのとき ballAt の開始点に合わせる)
+function drawPitcher(x, y, s, wind) {
+  var skin = "#f1c9a0", jersey = "#f4f6ff", trim = "#2f6fd0", capc = "#2a5fc0";
+  var pantsC = "#e6e9f2", glove = "#8a5a2b";
+  var u = Math.min(1, wind), fk = wind > 1 ? ss(0, 0.25, wind - 1) : 0;
+  var cam = 0.2, ccs = Math.cos(cam), csn = Math.sin(cam);
+  var turn = ss(0.1, 0.4, u) - ss(0.7, 0.95, u);        // 横向きになる度合い
+  var A = ss(0.1, 0.42, u), B = ss(0.48, 0.88, u);       // A=ひざ上げ B=ステップ
+  var cockP = ss(0.35, 0.72, u), acc = ss(0.72, 1, u);   // 腕の引き / 腕の振り
+  var hipH = 71 - 2 * A - 9 * B - 3 * fk;
+  var hx = -2 * A + B;
+  var hh = 9.5 - 3 * turn, hw = 17 - 7 * turn;
+  var L = 0.04 + 0.12 * B + 0.28 * acc + 0.3 * fk;       // 前傾
+  var T = 0.1 * cockP + 0.18 * acc + 0.1 * fk;           // 投げる側の肩が下がる
+  var sxc = hx, syc = -hipH - TORSO_L * Math.cos(L) + TORSO_L * Math.sin(L) * csn;
+  var sg = { x: sxc - hw * Math.cos(T), y: syc - hw * Math.sin(T) };   // グラブ側の肩(画面左)
+  var sr = { x: sxc + hw * Math.cos(T), y: syc + hw * Math.sin(T) };   // 投げる側の肩(画面右)
+  var hdx = sxc - 6 * T, hdy = syc - 17 * Math.cos(L) + 17 * Math.sin(L) * csn;
+
+  // 足の位置(ひざ上げ -> ステップ)
+  var restF = { x: -11, y: 0 }, liftF = { x: -7, y: -36 }, landF = { x: -20, y: 9 };
+  var f1x = lerp(restF.x, liftF.x, A), f1y = lerp(restF.y, liftF.y, A);
+  var lead = { x: lerp(f1x, landF.x, B), y: lerp(f1y, landF.y, B) };
+  var pivot = { x: 11 + 3 * fk, y: -13 * fk };
+  var lk = ik(hx - hh, -hipH, lead.x, lead.y - 5, LEG_L, LEG_L, -1, 0.2);
+  var pk = ik(hx + hh, -hipH, pivot.x, pivot.y - 5, LEG_L, LEG_L, 1, 0.2);
+
+  // 投げる腕: 3次元の向きで回し(長さは一定)、画面に投影する → 手前に向かうと短く見えるだけで伸びない
+  var Udn = [0.15, -0.95, 0.2], Fdn = [0.1, -0.9, 0.35];
+  var Uck = [0.97, 0.1, -0.2], Fck = [0.25, 0.88, -0.4];
+  var Urel = [0.15, 0.5, 0.85], Frel = [-0.25, 0.5, 0.83];
+  var Ufol = [-0.3, -0.6, 0.75], Ffol = [-0.85, -0.45, 0.3];
+  var accF = acc * acc;
+  var U = mix3(mix3(mix3(Udn, Uck, cockP), Urel, acc), Ufol, fk);
+  var F = mix3(mix3(mix3(Fdn, Fck, cockP), Frel, accF), Ffol, fk);
+  function proj(v, len) {
+    var m = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return { x: v[0] / m * len, y: (-v[1] * ccs + v[2] * csn) / m * len };
+  }
+  var pu = proj(U, ARM1), pf = proj(F, ARM2);
+  var fkE = { x: sr.x + pu.x, y: sr.y + pu.y };
+  var fkH = { x: fkE.x + pf.x, y: fkE.y + pf.y };
+  var chest = { x: sxc + 3, y: syc + 14 };
+  var ikR = ik(sr.x, sr.y, chest.x, chest.y, ARM1, ARM2, 0.3, 1);
+  var bI = wind > 1 ? 0 : 1 - ss(0.25, 0.5, u);
+  var rE = { x: lerp(fkE.x, ikR.ex, bI), y: lerp(fkE.y, ikR.ey, bI) };
+  var rH = { x: lerp(fkH.x, ikR.tx, bI), y: lerp(fkH.y, ikR.ty, bI) };
+  // グラブ側のうで
+  var gOut = ss(0.4, 0.85, u);
+  var gT = { x: lerp(sxc - 3, sxc - 26, gOut), y: lerp(syc + 14, syc + 4, gOut) };
+  gT = { x: lerp(gT.x, sxc - 14, fk), y: lerp(gT.y, syc + 22, fk) };
+  var ikG = ik(sg.x, sg.y, gT.x, gT.y, ARM1, ARM2, -0.4, 1);
+
+  pitcherHand = { x: x + rH.x * s, y: y + rH.y * s };
+
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(s, s);
+  // 影
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath(); ctx.ellipse(0, 2, 26, 6, 0, 0, Math.PI * 2); ctx.fill();
+  // 足 + スパイク
+  drawLeg(hx - hh, -hipH, lk.ex, lk.ey, lk.tx, lk.ty, 14, pantsC, trim);
+  drawLeg(hx + hh, -hipH, pk.ex, pk.ey, pk.tx, pk.ty, 14, pantsC, trim);
+  drawShoe(lead.x, lead.y, -1, "#26262e"); drawShoe(pivot.x, pivot.y, 1, "#26262e");
+  // パンツ + ジャージ + ベルト
+  ctx.fillStyle = pantsC;
+  roundRect(hx - hh - 7, -hipH - 6, hh * 2 + 14, 16, 6); ctx.fill();
+  ctx.fillStyle = jersey; ctx.strokeStyle = jersey; ctx.lineWidth = 9; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(sg.x, sg.y + 1); ctx.lineTo(sr.x, sr.y + 1); ctx.lineTo(hx + hh, -hipH - 6); ctx.lineTo(hx - hh, -hipH - 6); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(hx - hh - 5, -hipH - 4); ctx.lineTo(hx + hh + 5, -hipH - 4); ctx.stroke();
+  drawNumber(sxc, (syc - hipH) / 2 - 2, "1", trim, 13);
+  // 首 + 頭 + ぼうし
+  ctx.strokeStyle = skin; ctx.lineWidth = 7; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(sxc, syc + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
+  circle(hdx, hdy, 10.5, skin);
+  circle(hdx - 3.8, hdy - 0.5, 1.2, "#2b2b33"); circle(hdx + 3.8, hdy - 0.5, 1.2, "#2b2b33");
+  ctx.strokeStyle = "#a5533d"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(hdx - 2.5, hdy + 5.5); ctx.lineTo(hdx + 2.5, hdy + 5.5); ctx.stroke();
+  circle(hdx - 10.3, hdy + 1, 2, skin); circle(hdx + 10.3, hdy + 1, 2, skin);
+  ctx.fillStyle = capc;
+  ctx.beginPath(); ctx.arc(hdx, hdy - 1.5, 11.5, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hdx, hdy - 3, 12.5, 3.4, 0, 0, Math.PI); ctx.fill();   // つば
+  // グラブ側のうで + グラブ
+  limb(sg.x, sg.y + 1, ikG.ex, ikG.ey, ikG.tx, ikG.ty, 10, jersey, 7, skin);
+  circle(sg.x, sg.y + 1, 5.5, jersey);
+  circle(ikG.tx, ikG.ty, 6.5, glove);
+  ctx.strokeStyle = "#5e3a18"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(ikG.tx, ikG.ty, 3.2, 0, Math.PI * 2); ctx.stroke();
+  // 投げる側のうで
+  limb(sr.x, sr.y + 1, rE.x, rE.y, rH.x, rH.y, 10, jersey, 7, skin);
+  circle(sr.x, sr.y + 1, 5.5, jersey);
+  circle(rH.x, rH.y, 3.6, skin);
   ctx.restore();
 }
 
@@ -855,8 +959,8 @@ function drawSens(large) {
 // ---------- 各画面 ----------
 function drawTitle() {
   drawField(true);
-  drawPitcher(400, 215, 0.7, 0);
-  drawPerson(300, 400, 1.3, { cap: "#ff6f91", uni: "#ff9ec4", skin: "#ffe0bd", pants: "#fff" });
+  drawPitcher(400, 222, 0.5, 0);
+  drawBatterStand(300, 400, 1.0);
   ctx.fillStyle = "rgba(255,255,255,0.78)"; roundRect(150, 40, 500, 140, 28); ctx.fill();
   text("サークルゲーム", 400, 68, 20, "#ff6f91");
   text("ホームランダービー", 400, 118, 48, "#ffffff", "center", "#ff6f91");
@@ -993,7 +1097,7 @@ function drawBatting() {
   if (g.phase === "windup") wind = g.t / g.windT;
   else if (g.phase === "pitch" || g.phase === "contact") wind = 1 + g.t;
   else if (g.phase === "flight" || g.phase === "result") wind = 2;
-  drawPitcher(400, 205, 0.7, wind);
+  drawPitcher(400, 214, 0.42, wind);
 
   // ボール
   if (g.phase === "pitch") {
@@ -1001,7 +1105,7 @@ function drawBatting() {
     circle(b.sx, b.sy, Math.max(2, b.r * 0.9), "rgba(0,0,0,0.18)");   // 地面の影(消える球でも見える)
     if (b.a > 0) drawBall(b.x, b.y, b.r);
   } else if (g.phase === "windup") {
-    drawBall(404, 163, 3);
+    drawBall(pitcherHand.x, pitcherHand.y, 3);
   } else if (g.phase === "contact") {
     drawBall(g.bx, g.by, 13);
     drawSparks(g.bx, g.by, g.t / HITSTOP);
@@ -1108,17 +1212,16 @@ function drawSparks(x, y, k) {
 function drawResult() {
   drawBackdropSoft(resultInfo.cleared ? "#ffe9a8" : "#c9d3ee", resultInfo.cleared ? "#ffc4dd" : "#e6e0f5");
   var r = resultInfo, st = STAGES[r.idx];
-  var batterOpt = { cap: "#ff6f91", uni: "#ff9ec4", skin: "#ffe0bd", pants: "#fff" };
   if (r.cleared) {
     text("ステージクリア!", 400, 80, 54, "#ffe14d", "center", "#ff6f91");
-    drawPerson(400, 320, 1.4, batterOpt);
+    drawBatterStand(400, 352, 0.9);
     for (var i = 0; i < 12; i++) {
       var a = time * 1.5 + i * 0.52;
       circle(400 + Math.cos(a) * (130 + (i % 3) * 20), 220 + Math.sin(a) * 60, 5, ["#ff6f91", "#ffd23f", "#6a8cff", "#3ddc60"][i % 4]);
     }
   } else {
     text("ざんねん…", 400, 80, 54, "#ffffff", "center", "#6a5acd");
-    drawPerson(400, 320, 1.4, batterOpt);
+    drawBatterStand(400, 352, 0.9);
   }
   text(st.name + "   ホームラン " + r.hr + " / " + r.target, 400, 130, 22, "#4a3f8f");
   text("もらったポイント: +" + r.coins + (r.bonus ? "  (クリアボーナス " + r.bonus + " 含む)" : ""), 400, 165, 22, "#a0680a", "center", null, 760);
