@@ -560,52 +560,190 @@ function circle(x, y, r, fill) {
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill();
 }
 
-// 観客(固定の見た目)
-var crowd = [];
+// ---------- 背景(球場): 一度だけ別のキャンバスに描いておき、毎フレームはそれを貼るだけ ----------
+// 地面は1つの平面。地平線 HORIZON、ホームベース手前の奥行き Z0 から、
+//   奥行き Z(インチ、ホームベース=0)・横 X → 画面 (400 + X*1.65*u, HORIZON + 317*u),  u = Z0 / (Z0 + Z)
+// ピッチャーの足(Z=60.5ft)は y=214、ホームベースは y=388 になる。
+var HORIZON = 71, Z0 = 596, PX = 1.65, PY = 317;
+function gp(X, Z) { var u = Z0 / (Z0 + Z); return [400 + PX * X * u, HORIZON + PY * u]; }
+function gpoly(c, pts) {
+  c.beginPath();
+  for (var i = 0; i < pts.length; i++) { var p = gp(pts[i][0], pts[i][1]); if (i) c.lineTo(p[0], p[1]); else c.moveTo(p[0], p[1]); }
+  c.closePath();
+}
+function gcircle(c, X, Z, r, n) {   // 地面の円(実寸 r インチ)
+  var pts = [];
+  for (var i = 0; i < n; i++) { var a = i / n * Math.PI * 2; pts.push([X + r * Math.cos(a), Z + r * Math.sin(a)]); }
+  gpoly(c, pts);
+}
+var BG_TOP = 70;   // 背景キャンバスは画面の上 BG_TOP px / 下 60px 余分に持つ(カメラ移動用)
+var bgCanvas = null;
+var FRONT_ROW_Y = 111;
+var crowdFront = [];
 (function () {
-  var cols = ["#ffb3c1", "#ffd6a5", "#fdffb6", "#caffbf", "#9bf6ff", "#bdb2ff", "#ffc6ff"];
-  for (var r = 0; r < 3; r++) {
-    for (var i = 0; i < 44; i++) {
-      crowd.push({ x: i * 19 + (r % 2) * 9, y: 84 + r * 14, c: cols[(i * 3 + r * 5) % cols.length] });
-    }
-  }
+  var cols = ["#d98a8a", "#e0b48a", "#e6dc9a", "#9cc59a", "#8cc1cf", "#9a94cf", "#cf9cc4", "#e8e4dc"];
+  for (var i = 0; i < 70; i++) crowdFront.push({ x: i * 11.6 + (i % 2) * 3, c: cols[(i * 5 + 3) % cols.length] });
 })();
 
-function drawField(withCrowd, cheer) {
-  var sky = ctx.createLinearGradient(0, 0, 0, 130);
-  sky.addColorStop(0, "#7fd0ff"); sky.addColorStop(1, "#d9f3ff");
-  ctx.fillStyle = sky; ctx.fillRect(0, -60, W, 190);
-  // くも
-  circle(120, 30, 16, "rgba(255,255,255,0.9)"); circle(140, 34, 20, "rgba(255,255,255,0.9)"); circle(162, 32, 14, "rgba(255,255,255,0.9)");
-  circle(600, 24, 14, "rgba(255,255,255,0.9)"); circle(618, 28, 18, "rgba(255,255,255,0.9)");
-  // スタンド
-  ctx.fillStyle = "#8f86c9"; ctx.fillRect(0, 70, W, 60);
-  if (withCrowd) {
-    for (var i = 0; i < crowd.length; i++) {
-      var c = crowd[i];
-      var dy = cheer ? -Math.abs(Math.sin(time * 9 + i * 0.7)) * 6 : Math.sin(time * 3 + i) * 0.8;
-      circle(c.x, c.y + dy, 6, c.c);
+function buildBackground() {
+  var cv = document.createElement("canvas");
+  cv.width = W; cv.height = H + BG_TOP + 60;
+  var c = cv.getContext("2d");
+  c.translate(0, BG_TOP);
+  var i, x, y, gr;
+  // 空
+  gr = c.createLinearGradient(0, -BG_TOP, 0, 115);
+  gr.addColorStop(0, "#4f9fe0"); gr.addColorStop(0.65, "#9fd2f2"); gr.addColorStop(1, "#d6ecf6");
+  c.fillStyle = gr; c.fillRect(0, -BG_TOP, W, 200);
+  // やわらかい雲(ぼかした円を重ねる)
+  var clouds = [[120, 34, 70, 14], [330, 22, 90, 12], [560, 40, 80, 14], [720, 18, 60, 10], [470, 66, 70, 9]];
+  for (i = 0; i < clouds.length; i++) {
+    var cl = clouds[i];
+    for (var k = 0; k < 6; k++) {
+      var cx = cl[0] + (k - 2.5) * cl[2] / 5, cy = cl[1] + ((k * 7) % 5 - 2) * 2, cr = cl[3] * (1.1 - Math.abs(k - 2.5) * 0.12) + 4;
+      var rg = c.createRadialGradient(cx, cy, 0, cx, cy, cr * 1.7);
+      rg.addColorStop(0, "rgba(255,255,255,0.55)"); rg.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = rg; c.beginPath(); c.arc(cx, cy, cr * 1.7, 0, Math.PI * 2); c.fill();
     }
   }
-  // フェンス
-  ctx.fillStyle = "#3f8f5a"; ctx.fillRect(0, 118, W, 18);
-  ctx.fillStyle = "#fff"; ctx.fillRect(0, 118, W, 3);
-  text(FENCE_M + "m", 400, 127, 11, "#fff");
-  // 芝
-  var gr = ctx.createLinearGradient(0, 136, 0, H);
-  gr.addColorStop(0, "#6fcf7f"); gr.addColorStop(1, "#4aa860");
-  ctx.fillStyle = gr; ctx.fillRect(0, 136, W, H - 136 + 60);
-  for (var s = 0; s < 8; s++) {
-    ctx.fillStyle = s % 2 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
-    ctx.fillRect(0, 136 + s * 40, W, 40);
+  // 照明塔
+  for (i = 0; i < 2; i++) {
+    var lx = i ? 700 : 100;
+    c.fillStyle = "#6c7384"; c.fillRect(lx - 2, 28, 4, 60);
+    c.fillStyle = "#4a5060"; c.fillRect(lx - 17, 14, 34, 18);
+    c.fillStyle = "#f4f1d4";
+    for (var ly = 0; ly < 2; ly++) for (var lc = 0; lc < 5; lc++) c.fillRect(lx - 15 + lc * 6.5, 16 + ly * 8, 4.5, 5.5);
   }
-  // 土のあと
-  ctx.fillStyle = "#d9a875";
-  ctx.beginPath(); ctx.ellipse(400, 392, 150, 52, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(400, 205, 38, 12, 0, 0, Math.PI * 2); ctx.fill();
-  // ホームベース
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.moveTo(386, 380); ctx.lineTo(414, 380); ctx.lineTo(414, 387); ctx.lineTo(400, 396); ctx.lineTo(386, 387); ctx.closePath(); ctx.fill();
+  // スタンド(うしろの屋根 / 上段 / 下段)
+  c.fillStyle = "#5d6482"; c.fillRect(0, 58, W, 6);
+  gr = c.createLinearGradient(0, 64, 0, 124);
+  gr.addColorStop(0, "#7d7ba0"); gr.addColorStop(1, "#9a96b8");
+  c.fillStyle = gr; c.fillRect(0, 64, W, 60);
+  c.fillStyle = "rgba(40,40,70,0.25)"; c.fillRect(0, 92, W, 2);          // 通路
+  // 観客(小さな点とブロック。ひかえめな色)
+  var cols = ["#c98a95", "#cfae8c", "#d2cc98", "#93b896", "#86b3c2", "#938fc0", "#bd93b6", "#dcd8d0", "#7d86a8"];
+  for (var row = 0; row < 5; row++) {
+    var ry = 70 + row * 8 + (row >= 3 ? 4 : 0);
+    for (i = 0; i < 100; i++) {
+      x = i * 8.2 + (row % 2) * 4 + ((i * 7 + row * 3) % 3);
+      c.fillStyle = cols[(i * 5 + row * 3 + ((i * i) % 4)) % cols.length];
+      c.fillRect(x - 2.6, ry + 1, 5.2, 5);
+      c.beginPath(); c.arc(x, ry, 2.2, 0, Math.PI * 2); c.fill();
+    }
+  }
+  // 階段の通路(縦)
+  c.fillStyle = "rgba(50,50,85,0.35)";
+  for (i = 0; i < 9; i++) c.fillRect(i * 100 + 40, 64, 3, 60);
+  // 手前のかげ
+  gr = c.createLinearGradient(0, 100, 0, 124);
+  gr.addColorStop(0, "rgba(40,40,70,0)"); gr.addColorStop(1, "rgba(40,40,70,0.35)");
+  c.fillStyle = gr; c.fillRect(0, 100, W, 24);
+  // スコアボード(オリジナル)
+  c.fillStyle = "#223a2c"; c.fillRect(66, 62, 168, 52);
+  c.fillStyle = "#e8e4d0"; c.fillRect(66, 62, 168, 2); c.fillRect(66, 112, 168, 2);
+  c.fillStyle = "#14231a"; c.fillRect(72, 68, 156, 40);
+  c.fillStyle = "#f4d35a"; c.font = "bold 13px " + FONT; c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillText("サークル球場", 150, 79);
+  c.fillStyle = "#e0e0d0";
+  for (i = 0; i < 9; i++) { c.fillRect(82 + i * 16, 92, 12, 10); }
+  c.fillStyle = "#14231a";
+  for (i = 0; i < 9; i++) { c.fillRect(85 + i * 16, 95, 6, 4); }
+  // フェンス(外野の壁): 濃い緑 + 上にクッション + 広告バナー
+  c.fillStyle = "#1f4a35"; c.fillRect(0, 118, W, 24);
+  c.fillStyle = "#f2c230"; c.fillRect(0, 116, W, 3);                 // ホームラン線(黄色)
+  c.fillStyle = "rgba(255,255,255,0.12)"; c.fillRect(0, 119, W, 2);
+  var ads = [["#c2453d", "サークル"], ["#2f6fb0", "ホームラン"], ["#e0a030", "ダービー"], ["#3a8f68", "ベースボール"], ["#8a5ab0", "サークル"], ["#2f9fb0", "ホームラン"]];
+  c.font = "bold 9px " + FONT;
+  for (i = 0; i < 6; i++) {
+    var ax = 6 + i * 133;
+    if (i === 2 || i === 3) continue;
+    c.fillStyle = ads[i][0]; c.fillRect(ax, 123, 120, 14);
+    c.fillStyle = "#fff"; c.fillText(ads[i][1], ax + 60, 130.5);
+  }
+  // 中央の距離表示
+  c.fillStyle = "#f2f2e6"; c.fillRect(342, 121, 116, 18);
+  c.fillStyle = "#1f4a35"; c.font = "bold 12px " + FONT; c.fillText(FENCE_M + " m", 400, 130.5);
+  c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(0, 140, W, 2);
+  // ウォーニングトラック(壁のまえの土)
+  gr = c.createLinearGradient(0, 142, 0, 156);
+  gr.addColorStop(0, "#9b7552"); gr.addColorStop(1, "#b08a63");
+  c.fillStyle = gr; c.fillRect(0, 142, W, 14);
+  // 外野の芝: 奥行きが等間隔の刈りあと(遠いほど細くなる)
+  gr = c.createLinearGradient(0, 156, 0, H + 60);
+  gr.addColorStop(0, "#4b9a52"); gr.addColorStop(1, "#58ab5a");
+  c.fillStyle = gr; c.fillRect(0, 156, W, H + 60 - 156);
+  var uTop = (156 - HORIZON) / PY, uBot = (H + 60 - HORIZON) / PY;
+  var tTop = 1 / uTop, tBot = 1 / uBot, step = (tTop - tBot) / 13;
+  for (i = 0; i < 13; i++) {
+    if (i % 2) continue;
+    var y0 = HORIZON + PY / (tTop - i * step), y1 = HORIZON + PY / (tTop - (i + 1) * step);
+    c.fillStyle = "rgba(10,60,20,0.13)"; c.fillRect(0, y0, W, y1 - y0 + 0.5);
+  }
+  // 内野の土(1塁-3塁のあいだの扇形) + 中の芝のひし形
+  var skin = [[0, -20]], tt, sx, sz;
+  for (i = 0; i <= 48; i++) {
+    tt = Math.PI * (1 - i / 48);
+    sx = 1140 * Math.cos(tt); sz = 726 + 1140 * Math.sin(tt);
+    if (Math.abs(sx) > sz) sx = sz * (sx < 0 ? -1 : 1);     // ファウルラインより外には土を出さない
+    skin.push([sx, sz]);
+  }  gpoly(c, skin);
+  c.fillStyle = "#b98b62"; c.fill();
+  // 内野の芝(ひし形: 本塁-1塁-2塁-3塁を内側へ縮めたもの)
+  gpoly(c, [[0, 100], [642, 742], [0, 1385], [-642, 742]]);
+  gr = c.createLinearGradient(0, 160, 0, 330);
+  gr.addColorStop(0, "#5fae5d"); gr.addColorStop(1, "#6cbb66");
+  c.fillStyle = gr; c.fill();
+  // ホームのまわりの土の円(半径13ft) + バッターボックス周辺
+  gcircle(c, 0, 0, 156, 48); c.fillStyle = "#b98b62"; c.fill();
+  // 投手マウンド(半径9ft) と ピッチャーズプレート
+  gcircle(c, 0, 726, 108, 40); c.fillStyle = "#c39a6f"; c.fill();
+  gcircle(c, 0, 726, 60, 32); c.fillStyle = "#cfa77a"; c.fill();
+  c.fillStyle = "#f4f1ea"; c.fillRect(395, 213, 10, 2.5);
+  // 2塁ベース
+  var b2 = gp(0, 1524);
+  c.fillStyle = "#b98b62"; c.beginPath(); c.ellipse(b2[0], b2[1] + 1, 36, 5, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#f4f1ea"; c.fillRect(b2[0] - 5, b2[1] - 3, 10, 3);
+  // ファウルライン(白) と ホームベース・バッターボックスの白線
+  c.lineCap = "butt";
+  c.strokeStyle = "rgba(246,244,236,0.95)";
+  var pl = gp(0, -8), fe;
+  for (i = -1; i <= 1; i += 2) {
+    fe = gp(i * 2064, 2064 - 8);
+    c.lineWidth = 2.2;
+    c.beginPath(); c.moveTo(pl[0], pl[1]); c.lineTo(fe[0], fe[1]); c.stroke();
+  }
+  // バッターボックス(バッターの足元に合わせて描く: 画面の x 258..340, 奥行き y 378..417)
+  c.lineWidth = 1.8; c.strokeStyle = "rgba(246,244,236,0.92)";
+  c.beginPath(); c.moveTo(258, 417); c.lineTo(346, 417); c.lineTo(340, 377); c.lineTo(262, 377); c.closePath(); c.stroke();
+  // ホームベース(平らな辺がピッチャー側)
+  c.fillStyle = "rgba(0,0,0,0.18)";
+  c.beginPath(); c.moveTo(385.5, 383.5); c.lineTo(414.5, 383.5); c.lineTo(414.5, 390); c.lineTo(400, 397); c.lineTo(385.5, 390); c.closePath(); c.fill();
+  c.fillStyle = "#f6f4ec";
+  c.beginPath(); c.moveTo(386, 382); c.lineTo(414, 382); c.lineTo(414, 388.5); c.lineTo(400, 395); c.lineTo(386, 388.5); c.closePath(); c.fill();
+  // 手前の暗がり(画面の下にむかってやわらかく)
+  gr = c.createLinearGradient(0, 380, 0, H + 60);
+  gr.addColorStop(0, "rgba(20,30,20,0)"); gr.addColorStop(1, "rgba(20,30,20,0.22)");
+  c.fillStyle = gr; c.fillRect(0, 380, W, H + 60 - 380);
+  bgCanvas = cv;
+}
+
+function drawField(withCrowd, cheer) {
+  if (!bgCanvas) buildBackground();
+  ctx.drawImage(bgCanvas, 0, -BG_TOP);
+  // 空の上にはみ出す分(カメラが下がったとき)
+  ctx.fillStyle = "#4f9fe0"; ctx.fillRect(0, -BG_TOP - 60, W, 60);
+  if (withCrowd) {
+    // 最前列の観客(動く): 通常はゆらゆら / ホームランでは立ち上がって跳ねる
+    for (var i = 0; i < crowdFront.length; i++) {
+      var p = crowdFront[i];
+      var dy = cheer ? -Math.abs(Math.sin(time * 9 + i * 0.7)) * 7 : Math.sin(time * 3 + i) * 0.6;
+      ctx.fillStyle = p.c;
+      ctx.fillRect(p.x - 3.4, FRONT_ROW_Y + 2 + dy, 6.8, 7 - dy);
+      circle(p.x, FRONT_ROW_Y + dy, 3.1, p.c);
+    }
+    // フェンスの上端が最前列の足元をかくす
+    ctx.fillStyle = "#f2c230"; ctx.fillRect(0, 116, W, 3);
+  }
 }
 
 // ---------- 人物(実際の野球選手の体型: 約7頭身) ----------
@@ -959,7 +1097,7 @@ function drawSens(large) {
 // ---------- 各画面 ----------
 function drawTitle() {
   drawField(true);
-  drawPitcher(400, 222, 0.5, 0);
+  drawPitcher(400, 214, 0.42, 0);
   drawBatterStand(300, 400, 1.0);
   ctx.fillStyle = "rgba(255,255,255,0.78)"; roundRect(150, 40, 500, 140, 28); ctx.fill();
   text("サークルゲーム", 400, 68, 20, "#ff6f91");
