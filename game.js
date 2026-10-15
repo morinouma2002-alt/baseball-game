@@ -1245,43 +1245,44 @@ function drawStrikeZone() {
 }
 
 // バットの打つ位置のカーソル(位置だけを示す。タイミングは示さない)
-// 内側のだ円 = ボールに当たる範囲(横 REACH_H x 縦 reachV)、中心 = バットが通る点
+// 細いバット形。太い先(スイートスポット)が aim の位置にぴったり重なる
 function drawAimCursor() {
-  var x = aim.x, y = aim.y, i;
+  var x = aim.x, y = aim.y;
   var swinging = g.swingT !== null;
-  var rx = REACH_H, ry = reachV(save.levels.meet);
   var pulse = swinging ? 0 : Math.sin(performance.now() / 260);
-  var k = swinging ? 0.82 + 0.1 * Math.sin(g.swingT * 60) : 1 + 0.05 * pulse;
-  var ring = 9 * k;
-  ctx.save();
-  ctx.lineCap = "round";
-  // 当たる範囲(うすいだ円)
-  ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2);
-  ctx.fillStyle = swinging ? "rgba(255,236,120,0.28)" : "rgba(255,255,255,0.16)"; ctx.fill();
-  ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 3.5; ctx.stroke();
-  ctx.strokeStyle = "rgba(255,236,120,0.95)"; ctx.lineWidth = 1.6; ctx.stroke();
-  ctx.setLineDash([]);
-  // 十字の目盛り
-  function ticks() {
+  var k = swinging ? 0.8 + 0.08 * Math.sin(g.swingT * 60) : 1 + 0.04 * pulse;
+  var L = 54, ang = -0.3; // 持ち手は左下(バッター側)、先が aim
+  function batPath() {
     ctx.beginPath();
-    ctx.moveTo(x - ring - 8, y); ctx.lineTo(x - ring + 3, y);
-    ctx.moveTo(x + ring - 3, y); ctx.lineTo(x + ring + 8, y);
-    ctx.moveTo(x, y - ring - 8); ctx.lineTo(x, y - ring + 3);
-    ctx.moveTo(x, y + ring - 3); ctx.lineTo(x, y + ring + 8);
-    ctx.stroke();
+    ctx.moveTo(-L, 0);                 // グリップエンド
+    ctx.lineTo(-L, -2.6);
+    ctx.lineTo(-L * 0.62, -1.6);       // 細い持ち手
+    ctx.quadraticCurveTo(-L * 0.3, -1.8, -13, -4.4); // だんだん太く
+    ctx.lineTo(-3, -4.6);
+    ctx.quadraticCurveTo(5, -4.4, 5, 0); // 丸い先端
+    ctx.quadraticCurveTo(5, 4.4, -3, 4.6);
+    ctx.lineTo(-13, 4.4);
+    ctx.quadraticCurveTo(-L * 0.3, 1.8, -L * 0.62, 1.6);
+    ctx.lineTo(-L, 2.6);
+    ctx.closePath();
   }
-  var col = swinging ? "#ffd23a" : "#ffffff";
-  ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.lineWidth = 5.5;
-  ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke(); ticks();
-  ctx.strokeStyle = col; ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke(); ticks();
-  // 中心点
-  circle(x, y, 3.2, "rgba(0,0,0,0.75)");
-  circle(x, y, 2, "#ff8a1f");
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(ang); ctx.scale(k, k);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  batPath();
+  ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.lineWidth = 4.5; ctx.stroke();
+  ctx.fillStyle = swinging ? "rgba(255,210,58,0.95)" : "rgba(255,244,200,0.92)"; ctx.fill();
+  ctx.strokeStyle = swinging ? "#fff3a0" : "#ffffff"; ctx.lineWidth = 1.6; ctx.stroke();
+  // グリップのノブ
+  ctx.beginPath(); ctx.arc(-L, 0, 3.4, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fill();
+  ctx.beginPath(); ctx.arc(-L, 0, 2.2, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
   ctx.restore();
+  // スイートスポットの小さな点
+  circle(x, y, 2.8, "rgba(0,0,0,0.8)");
+  circle(x, y, 1.8, "#ff8a1f");
 }
-
 function drawBatting() {
   var st = g.stage;
   var hrNow = g.out && g.out.kind === "hr" && (g.phase === "flight" || g.phase === "result");
