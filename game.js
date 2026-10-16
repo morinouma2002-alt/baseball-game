@@ -29,6 +29,33 @@ var STAGES = [
   { name: "最終ボス",               pitches: 40, target: 28, ballTime: 0.80, types: ["straight", "vanish"],          windup: [0.35, 0.8] }
 ];
 
+// ステージごとの見た目(バッター b / ピッチャー p)。どれもオリジナルの人物。
+// skin 肌 / hair 髪 / jersey ユニフォーム / trim アクセント色 / cap ぼうし・ヘルメット / pants ズボン
+// 小物: glasses めがね / freckles そばかす / stache ひげ / tail ポニーテール / band ぼうしの線 / eyeblack アイブラック
+var LOOKS = [
+  { b: { skin: "#f6d3b0", hair: "#5a3a2a", jersey: "#f7f4f5", trim: "#e8456f", cap: "#d63a63", pants: "#f2f0f2", num: "7" },
+    p: { skin: "#f6d3b0", hair: "#6b4a2f", jersey: "#f4f6ff", trim: "#2f6fd0", cap: "#2a5fc0", pants: "#e6e9f2", num: "1" } },
+  { b: { skin: "#f1c9a0", hair: "#2b2b33", jersey: "#fff3dc", trim: "#f08a1c", cap: "#e07a10", pants: "#fff7e8", num: "4", tail: true },
+    p: { skin: "#e8b88a", hair: "#2b2b33", jersey: "#e9f7ea", trim: "#2e9c4f", cap: "#2e8a49", pants: "#eef6ee", num: "3", glasses: true } },
+  { b: { skin: "#e8b88a", hair: "#7a4a1e", jersey: "#eaf3ff", trim: "#2f8fe0", cap: "#2f7fd0", pants: "#eef4fb", num: "10" },
+    p: { skin: "#f1c9a0", hair: "#c0561e", jersey: "#fff0e0", trim: "#e0402a", cap: "#d63a2a", pants: "#fbeee2", num: "18", band: "#fff" } },
+  { b: { skin: "#f6d3b0", hair: "#d8902a", jersey: "#f1ecff", trim: "#8a5ad8", cap: "#7a4ac8", pants: "#f3f0fb", num: "9", glasses: true },
+    p: { skin: "#d9a97e", hair: "#2a2a2a", jersey: "#efe6ff", trim: "#7a4ac8", cap: "#6a3ab8", pants: "#ece6f7", num: "6", freckles: true } },
+  { b: { skin: "#f1c9a0", hair: "#1f1f2a", jersey: "#f2f4f8", trim: "#1f3a7a", cap: "#1f3a7a", pants: "#eef0f5", num: "2", eyeblack: true },
+    p: { skin: "#f6d3b0", hair: "#8a6a3a", jersey: "#f4f6fb", trim: "#c0213a", cap: "#1f3a7a", pants: "#e8ebf2", num: "11", glasses: true, band: "#c0213a" } },
+  { b: { skin: "#d9a97e", hair: "#2a1f1a", jersey: "#eaf1ea", trim: "#2a6a4a", cap: "#245a3e", pants: "#eef3ee", num: "5", tail: true },
+    p: { skin: "#e8b88a", hair: "#b8b8c0", jersey: "#e6efe9", trim: "#1f5a3a", cap: "#1f4a33", pants: "#e3ebe5", num: "21", stache: true } },
+  { b: { skin: "#f6d3b0", hair: "#8a3ab8", jersey: "#2c2a3a", trim: "#c8a8ff", cap: "#4a3a7a", pants: "#3a3850", num: "13" },
+    p: { skin: "#f1c9a0", hair: "#6a2aa0", jersey: "#35305a", trim: "#d8b8ff", cap: "#4a3a7a", pants: "#2e2b48", num: "0", tail: true, band: "#d8b8ff" } },
+  { b: { skin: "#e8b88a", hair: "#2b2b33", jersey: "#fff0f0", trim: "#d82a2a", cap: "#222230", pants: "#f5eaea", num: "1", eyeblack: true },
+    p: { skin: "#d9a97e", hair: "#1a1a1a", jersey: "#26262e", trim: "#e03a3a", cap: "#c82a2a", pants: "#2e2e38", num: "99", eyeblack: true, stache: true } }
+];
+// いま描くキャラの見た目: 打席中はそのステージ、それ以外(タイトルなど)は1ステージ目
+function lookFor() {
+  var i = (scene === "batting" && g) ? g.idx : 0;
+  return LOOKS[i] || LOOKS[0];
+}
+
 var STATS = [
   { key: "power", name: "パワー", desc: "飛距離" },
   { key: "meet",  name: "ミート", desc: "グリーンの広さ" }
@@ -752,6 +779,10 @@ var BAT_LEN = 96;
 var ARM1 = 31, ARM2 = 29, LEG_L = 36, TORSO_L = 44, HIP_Y = 350;
 function lerp(a, b, t) { return a + (b - a) * t; }
 function ss(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function shade(hex, k) {   // "#rrggbb" を k 倍の明るさに
+  var n = parseInt(hex.slice(1), 16);
+  return "rgb(" + Math.round((n >> 16 & 255) * k) + "," + Math.round((n >> 8 & 255) * k) + "," + Math.round((n & 255) * k) + ")";
+}
 function mix3(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
 // 2関節IK。(px,py)から(tx,ty)へ、長さ l1,l2 は一定。ひじ/ひざは (prx,pry) 側へ曲げる。
 // 遠すぎるときは手の位置のほうを届く範囲にそろえる(長さは変えない)。
@@ -802,8 +833,9 @@ function drawNumber(x, y, str, col, size) {
 // swingT: null=構え / 数値=スイング中。CONTACT_SW でバットが(ax, ay)を通る。
 function drawBatter(ax, ay, swingT) {
   var D = Math.PI / 180;
-  var skin = "#f1c9a0", skinD = "#d9a97e", jersey = "#f7f4f5", trim = "#e8456f", helmet = "#d63a63";
-  var pantsC = "#f2f0f2", glove = "#34343f";
+  var LK = lookFor().b;
+  var skin = LK.skin, skinD = shade(LK.skin, 0.88), jersey = LK.jersey, trim = LK.trim, helmet = LK.cap;
+  var pantsC = LK.pants, glove = "#34343f";
   // --- スイングの進み具合 w: 0=構え 1=ミートの瞬間 2=振り抜き ---
   var w = 0;
   if (swingT !== null) {
@@ -879,14 +911,28 @@ function drawBatter(ax, ay, swingT) {
   ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.moveTo(hlx - 5, HIP_Y - 4); ctx.lineTo(hrx + 5, HIP_Y - 4); ctx.stroke();
   ctx.fillStyle = "#d8c36a"; ctx.fillRect(hx - 2, HIP_Y - 6, 4, 4);
-  drawNumber((slx + srx) / 2, (sy + HIP_Y) / 2 - 3, "7", trim, 13);
+  drawNumber((slx + srx) / 2, (sy + HIP_Y) / 2 - 3, LK.num, trim, LK.num.length > 1 ? 11 : 13);
   // 首 + 頭 + バッティングヘルメット(ピッチャー側を向く)
   var hdx = sx + 20 * Math.sin(phi) + 3, hdy = sy - 20 * Math.cos(phi);
   ctx.strokeStyle = skinD; ctx.lineWidth = 7; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(sx, sy + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
+  // 髪(ヘルメットの下から見える後ろ髪 / ポニーテール)
+  if (LK.tail) {
+    ctx.strokeStyle = LK.hair; ctx.lineWidth = 5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(hdx - 9, hdy); ctx.quadraticCurveTo(hdx - 19, hdy + 1, hdx - 18, hdy + 12); ctx.stroke();
+  }
+  circle(hdx - 8, hdy + 5, 4.5, LK.hair);
   circle(hdx, hdy, 10.5, skin);
   circle(hdx + 10, hdy + 2, 2.2, skin);                              // 鼻
-  circle(hdx + 5, hdy - 1, 1.3, "#2b2b33");                          // 目
+  circle(hdx + 5, hdy - 1, 1.5, "#2b2b33");                          // 目
+  circle(hdx + 5.5, hdy - 1.6, 0.6, "#fff");
+  circle(hdx + 3.5, hdy + 4, 2.6, "rgba(255,120,140,0.45)");         // ほっぺ
+  if (LK.eyeblack) { ctx.fillStyle = "rgba(20,20,30,0.7)"; ctx.fillRect(hdx + 2.5, hdy + 1.2, 5, 1.6); }
+  if (LK.glasses) {
+    ctx.strokeStyle = "#2b2b33"; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.arc(hdx + 5, hdy - 1, 3.6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hdx + 1.4, hdy - 1.4); ctx.lineTo(hdx - 6, hdy - 2); ctx.stroke();
+  }
   ctx.strokeStyle = "#5a3a2a"; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.moveTo(hdx + 3, hdy - 3.5); ctx.lineTo(hdx + 8, hdy - 3); ctx.stroke();   // まゆ
   ctx.strokeStyle = "#a5533d";
@@ -922,8 +968,9 @@ function drawBatterStand(x, y, sc) {
 // 流れ: セット → ひざを上げる → ステップ → 腕を回す → リリース → フォロースルー
 var pitcherHand = { x: 404, y: 163 };      // 投げる手の画面上の位置(リリースのとき ballAt の開始点に合わせる)
 function drawPitcher(x, y, s, wind) {
-  var skin = "#f1c9a0", jersey = "#f4f6ff", trim = "#2f6fd0", capc = "#2a5fc0";
-  var pantsC = "#e6e9f2", glove = "#8a5a2b";
+  var LK = lookFor().p;
+  var skin = LK.skin, jersey = LK.jersey, trim = LK.trim, capc = LK.cap;
+  var pantsC = LK.pants, glove = "#8a5a2b";
   var u = Math.min(1, wind), fk = wind > 1 ? ss(0, 0.25, wind - 1) : 0;
   var cam = 0.2, ccs = Math.cos(cam), csn = Math.sin(cam);
   var turn = ss(0.1, 0.4, u) - ss(0.7, 0.95, u);        // 横向きになる度合い
@@ -992,18 +1039,40 @@ function drawPitcher(x, y, s, wind) {
   ctx.fill(); ctx.stroke();
   ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.moveTo(hx - hh - 5, -hipH - 4); ctx.lineTo(hx + hh + 5, -hipH - 4); ctx.stroke();
-  drawNumber(sxc, (syc - hipH) / 2 - 2, "1", trim, 13);
+  drawNumber(sxc, (syc - hipH) / 2 - 2, LK.num, trim, LK.num.length > 1 ? 11 : 13);
   // 首 + 頭 + ぼうし
   ctx.strokeStyle = skin; ctx.lineWidth = 7; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(sxc, syc + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
+  if (LK.tail) {   // ポニーテール(顔のうしろ)
+    ctx.strokeStyle = LK.hair; ctx.lineWidth = 5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(hdx + 6, hdy - 4); ctx.quadraticCurveTo(hdx + 19, hdy - 2, hdx + 16, hdy + 11); ctx.stroke();
+  }
   circle(hdx, hdy, 10.5, skin);
-  circle(hdx - 3.8, hdy - 0.5, 1.2, "#2b2b33"); circle(hdx + 3.8, hdy - 0.5, 1.2, "#2b2b33");
-  ctx.strokeStyle = "#a5533d"; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(hdx - 2.5, hdy + 5.5); ctx.lineTo(hdx + 2.5, hdy + 5.5); ctx.stroke();
+  ctx.fillStyle = LK.hair;   // ぼうしの下からのぞく髪
+  ctx.beginPath(); ctx.ellipse(hdx - 9, hdy + 1, 2.8, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hdx + 9, hdy + 1, 2.8, 5, 0, 0, Math.PI * 2); ctx.fill();
+  circle(hdx - 3.8, hdy - 0.5, 1.5, "#2b2b33"); circle(hdx + 3.8, hdy - 0.5, 1.5, "#2b2b33");
+  circle(hdx - 3.3, hdy - 1.1, 0.6, "#fff"); circle(hdx + 4.3, hdy - 1.1, 0.6, "#fff");
+  circle(hdx - 6.5, hdy + 3.6, 2.3, "rgba(255,120,140,0.45)"); circle(hdx + 6.5, hdy + 3.6, 2.3, "rgba(255,120,140,0.45)");
+  if (LK.freckles) {
+    ctx.fillStyle = "rgba(150,80,40,0.7)";
+    for (var fi = -1; fi <= 1; fi += 2) { circle(hdx + fi * 5.5, hdy + 1.6, 0.6, ctx.fillStyle); circle(hdx + fi * 3.8, hdy + 2.6, 0.6, ctx.fillStyle); circle(hdx + fi * 7, hdy + 2.6, 0.6, ctx.fillStyle); }
+  }
+  if (LK.eyeblack) { ctx.fillStyle = "rgba(20,20,30,0.7)"; ctx.fillRect(hdx - 6, hdy + 1.6, 4.4, 1.5); ctx.fillRect(hdx + 1.6, hdy + 1.6, 4.4, 1.5); }
+  if (LK.glasses) {
+    ctx.strokeStyle = "#2b2b33"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(hdx - 3.8, hdy - 0.5, 3.3, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(hdx + 3.8, hdy - 0.5, 3.3, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hdx - 0.5, hdy - 0.5); ctx.lineTo(hdx + 0.5, hdy - 0.5); ctx.stroke();
+  }
+  ctx.strokeStyle = "#a5533d"; ctx.lineWidth = 1.2;   // くち(にっこり)
+  ctx.beginPath(); ctx.arc(hdx, hdy + 4.2, 2.6, 0.2, Math.PI - 0.2); ctx.stroke();
+  if (LK.stache) { ctx.fillStyle = LK.hair; roundRect(hdx - 4.5, hdy + 2.6, 9, 2.2, 1.1); ctx.fill(); }
   circle(hdx - 10.3, hdy + 1, 2, skin); circle(hdx + 10.3, hdy + 1, 2, skin);
   ctx.fillStyle = capc;
   ctx.beginPath(); ctx.arc(hdx, hdy - 1.5, 11.5, Math.PI, 0); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.ellipse(hdx, hdy - 3, 12.5, 3.4, 0, 0, Math.PI); ctx.fill();   // つば
+  if (LK.band) { ctx.strokeStyle = LK.band; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hdx, hdy - 1.5, 8.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
   // グラブ側のうで + グラブ
   limb(sg.x, sg.y + 1, ikG.ex, ikG.ey, ikG.tx, ikG.ty, 10, jersey, 7, skin);
   circle(sg.x, sg.y + 1, 5.5, jersey);
