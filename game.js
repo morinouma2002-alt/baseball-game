@@ -244,6 +244,7 @@ var aimTarget = { x: 400, y: ZONE_Y };    // ポインタ/キーが指してい�
 var keysDown = {};
 
 function startStage(idx) {
+  sessionBest = 0;
   var st = STAGES[idx];
   g = {
     idx: idx, stage: st,
@@ -388,6 +389,7 @@ function updateBatting(dt) {
         } else if (o.kind === "hit") {
           g.lastDist = o.dist;
         }
+        if (o.dist && (o.kind === "hr" || o.kind === "hit") && o.dist > sessionBest) sessionBest = o.dist;
         g.phase = "result"; g.t = 0;
       }
       break;
@@ -1028,7 +1030,7 @@ function ballAt(pitchT) {
   var T = g.ballTime, p = pitchT / T;
   if (p > 1) {
     var ex = Math.min(1, (pitchT - T) / PASS_T);
-    return { x: g.bx, y: g.by + 28 * ex, r: 13 - ex, a: 1, sx: g.bx, sy: 400 };
+    return { x: g.bx, y: g.by + 28 * ex, r: 9 - ex, a: 1, sx: g.bx, sy: 400 };
   }
   var e = Math.pow(p, 1.6);
   var tgt = g.by - (g.type === "drop" ? 60 : 0);
@@ -1049,7 +1051,7 @@ function ballAt(pitchT) {
     y = line + 60 * s3 * s3;
   }
   var a = (g.type === "vanish" && p > 0.45 && p < 0.78) ? 0 : 1;
-  return { x: x, y: y, r: 3 + 10 * e, a: a, sx: x, sy: gy };
+  return { x: x, y: y, r: 3 + 6 * p, a: a, sx: x, sy: gy };   // 大きさは一定のペースでふつうに大きくなる(近づいても急にでかくならない)
 }
 
 function drawOptionsButton(x, y, w, h) {
@@ -1300,6 +1302,59 @@ function drawArrivalCue(p) {
 function aimAligned() {
   return Math.abs(g.bx - aim.x) <= REACH_H && Math.abs(g.by - aim.y) <= reachV(save.levels.meet);
 }
+// ---------- 飛距離トラッカー ----------
+var GAUGE = { x0: 90, x1: 710, y: 430, max: 160 };
+var sessionBest = 0;         // このステージで一番飛んだ距離(メモリのみ。セーブ形式は変えない)
+function flightPos(f, q) {
+  return {
+    x: g.bx + f.dx * q,
+    y: g.by + (f.endY - g.by) * q - f.arc * Math.sin(Math.PI * q)
+  };
+}
+function gaugeX(m) { return GAUGE.x0 + Math.min(GAUGE.max, Math.max(0, m)) / GAUGE.max * (GAUGE.x1 - GAUGE.x0); }
+// 飛行の進み具合 q -> いま飛んだ距離(m)。q=1 で o.dist ちょうど
+function flownDist(o, q) { return Math.round(o.dist * (1 - (1 - q) * (1 - q))); }
+
+function drawDistGauge(d, o) {
+  var gy = GAUGE.y, i, m, x;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.45)"; roundRect(GAUGE.x0 - 40, gy - 13, GAUGE.x1 - GAUGE.x0 + 80, 26, 8); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(GAUGE.x0, gy - 1.5, GAUGE.x1 - GAUGE.x0, 3);
+  ctx.fillStyle = "#ffe14d"; ctx.fillRect(GAUGE.x0, gy - 1.5, gaugeX(d) - GAUGE.x0, 3);   // 飛んだぶん
+  for (m = 0; m <= 150; m += 25) {
+    x = gaugeX(m);
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(x - 0.5, gy - 5, 1, 10);
+    if (m % 50 === 0 && m !== FENCE_M) text(m + "m", x, gy + 8, 9, "#fff", "center", "rgba(0,0,0,0.7)");
+  }
+  // フェンス(超えたら光る)
+  var fx = gaugeX(FENCE_M), over = d >= FENCE_M;
+  ctx.fillStyle = over ? "#ff3d6e" : "#ffe14d"; ctx.fillRect(fx - 1.5, gy - 10, 3, 20);
+  text("フェンス " + FENCE_M + "m", fx, gy - 19, 10, over ? "#ffe14d" : "#fff", "center", "rgba(0,0,0,0.75)");
+  // ベスト
+  if (sessionBest > 0) {
+    x = gaugeX(sessionBest);
+    ctx.fillStyle = "#7fe0ff"; ctx.fillRect(x - 1, gy - 9, 2, 18);
+    text("ベスト " + sessionBest + "m", x, gy + 8, 9, "#7fe0ff", "center", "rgba(0,0,0,0.75)");
+  }
+  // 球のマーカー
+  x = gaugeX(d);
+  circle(x, gy, 6, "#fff");
+  ctx.lineWidth = 2; ctx.strokeStyle = "#e0405a"; ctx.beginPath(); ctx.arc(x, gy, 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawLandingPin(p, label) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(p.x, p.y + 2); ctx.lineTo(p.x, p.y - 16); ctx.stroke();
+  ctx.fillStyle = "#ff3d6e";
+  ctx.beginPath(); ctx.moveTo(p.x, p.y - 16); ctx.lineTo(p.x + 12, p.y - 12); ctx.lineTo(p.x, p.y - 8); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  text(label, p.x, p.y + 14, 14, "#fff", "center", "rgba(0,0,0,0.8)");
+}
+
 function drawBatting() {
   var st = g.stage;
   var hrNow = g.out && g.out.kind === "hr" && (g.phase === "flight" || g.phase === "result");
@@ -1341,17 +1396,12 @@ function drawBatting() {
     }
     ctx.globalAlpha = 1;
     if (b.a > 0) {
-      var br = b.r * 1.2 + 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(b.x, b.y, br + 1.5, 0, Math.PI * 2); ctx.stroke();
-      drawBall(b.x, b.y, br);
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(b.x, b.y, br + 0.5, 0, Math.PI * 2); ctx.stroke();
+      drawBall(b.x, b.y, b.r);
     }
   } else if (g.phase === "windup") {
     drawBall(pitcherHand.x, pitcherHand.y, 3);
   } else if (g.phase === "contact") {
-    drawBall(g.bx, g.by, 13);
+    drawBall(g.bx, g.by, 9);
     drawSparks(g.bx, g.by, g.t / HITSTOP);
   } else if (g.phase === "result" && !g.out) {
     var bb = ballAt(g.ballTime + PASS_T);
@@ -1363,16 +1413,36 @@ function drawBatting() {
     var f = g.flight, q = Math.min(1, g.t / f.dur);
     var fx = g.bx + f.dx * q;
     var fy = g.by + (f.endY - g.by) * q - f.arc * Math.sin(Math.PI * q);
-    var fr = 12 * (1 - q) + f.endSize * q;
+    var fr = 9 * (1 - q) + f.endSize * q;
+    // 軌跡(空中の通り道。古いほどうすく細く)
+    for (var tj = 16; tj >= 1; tj--) {
+      var tq = q - tj * 0.025;
+      if (tq <= 0) continue;
+      var tp = flightPos(f, tq);
+      ctx.globalAlpha = 0.55 * (1 - tj / 17);
+      circle(tp.x, tp.y, Math.max(1.2, (9 * (1 - tq) + f.endSize * tq) * (1 - tj / 20)), "#fff");
+    }
+    ctx.globalAlpha = 1;
     drawBall(fx, fy, fr);
     if (g.t < 0.25) drawSparks(g.bx, g.by, 1 + g.t * 4);
+  }
+
+  // 飛距離トラッカー(ゲージ + 数字 + 着地ピン)
+  if (g.out && g.out.dist && (g.phase === "flight" || g.phase === "result")) {
+    var inFl = g.phase === "flight";
+    var dNow = inFl ? flownDist(g.out, Math.min(1, g.t / g.flight.dur)) : g.out.dist;
+    drawDistGauge(dNow, g.out);
+    if (inFl) text(dNow + "m", 400, 78, 36, "#ffe14d", "center", "rgba(0,0,0,0.8)");
+    else {
+      var lp = flightPos(g.flight, 1);
+      drawLandingPin({ x: clamp(lp.x, 40, 660), y: Math.max(lp.y, 84) }, g.out.dist + "m");
+    }
   }
 
   drawBatter(aim.x, aim.y, g.swingT);
   if (g.phase === "windup" || g.phase === "pitch") {
     var al = g.phase === "pitch" && g.swingT === null && aimAligned();
     drawAimCursor(al);
-    if (al) text("ここ!", aim.x + 30, aim.y + 22, 18, "#7dff9b", "center", "rgba(0,60,20,0.9)");
   }
 
   // ポップアップ
@@ -1408,11 +1478,6 @@ function drawBatting() {
     if (sub) text(sub, 0, 50, 30, "#ffffff", "center", "#4a3f8f");
     if (sub2) text(sub2, 0, 84, 24, "#ffe14d", "center", "#ff3d6e");
     ctx.restore();
-  }
-  // ホームランのフラッシュ
-  if (g.hitFlash > 0) {
-    ctx.fillStyle = "rgba(255,255,255," + (0.55 * g.hitFlash / 0.35) + ")";
-    ctx.fillRect(0, 0, W, H);
   }
 
   // 初球だけ操作のヒント
