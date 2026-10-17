@@ -847,30 +847,32 @@ function drawBatter(ax, ay, swingT) {
   var rh = w <= 1 ? lerp(1.0, 0.0, ss(0, 0.7, w)) : lerp(0, -0.4, w2);
   var rs = w <= 1 ? lerp(1.1, 0.1, ss(0.25, 1, w)) : lerp(0.1, -0.5, w2);
   // --- 足は地面に固定(足は広げ、ひざを曲げる)。前足だけ踏み出して着地 ---
-  var baseX = 288 + (ax - ZONE.x0) * 0.25;
+  // --- 体の位置・傾きは、バットの位置(ax, ay)でほんの少しだけ変える(うでは固定) ---
+  var baseX = 322 + (ax - 395) * 0.5;                 // 体全体の重心の移動(足も一緒に動く)
   var fl = { x: baseX - 24, y: 412 - 5 * w2 }, fr = { x: baseX + 24 + 16 * w1, y: 412 - 12 * Math.sin(Math.PI * w1) };
-  var hx = baseX + 8 * w1 + (w2 > 0 ? 2 : 0);
   var hh = 9 * Math.cos(rh) + 2;
+  var phi0 = 0.12 + 0.05 * (ax - 395) / 45 + 0.04 * (ay - 360) / 50;   // 上半身の傾き(数度だけ)
+  // 体の姿勢: wv=0..1 のときの腰・肩の中心(手の位置の基準)
+  function torsoAt(wv) {
+    var hxx = baseX + 8 * wv, ph = phi0 + 0.08 * wv;
+    return { hx: hxx, phi: ph, sx: hxx + TORSO_L * Math.sin(ph), sy: HIP_Y - TORSO_L * Math.cos(ph) };
+  }
+  var T = torsoAt(w1);
+  var hx = T.hx + (w2 > 0 ? 2 : 0), phi = T.phi;
   var hlx = hx - hh, hrx = hx + hh;
-  // --- 上半身の傾き(前に出す/低く構える) ---
-  var phi = 0.08 + 0.22 * (ax - ZONE.x0) / (ZONE.x1 - ZONE.x0) + 0.12 * (ay - ZONE_Y) / 100 + 0.1 * w1;
-  var sx = hx + TORSO_L * Math.sin(phi), sy = HIP_Y - TORSO_L * Math.cos(phi);
+  var sx = T.sx + (w2 > 0 ? 2 : 0), sy = T.sy;
   var hw = 17 * Math.cos(rs) + 2;
   var slx = sx - hw, srx = sx + hw;
-  // --- バットと手の位置 ---
-  var R = BAT_LEN * GREEN_C;
-  var kk = clamp((ay - ZONE_Y) / 100, -0.5, 0.5);
-  var thTilt = kk * 0.9;
-  var gcx = ax - R * Math.cos(thTilt), gcy = ay - R * Math.sin(thTilt);
-  var cdx = gcx - sx, cdy = gcy - sy, cd = Math.sqrt(cdx * cdx + cdy * cdy);
-  if (cd > 42) { gcx = sx + cdx / cd * 42; gcy = sy + cdy / cd * 42; }
-  var thc = Math.atan2(ay - gcy, ax - gcx);        // ミートの瞬間のバットの向き(必ず(ax,ay)を通る)
+  // --- 手(グリップ)は肩の中心から決まった位置に固定。バットはそこを軸に回るだけ ---
+  var GRIP_DX = 22, GRIP_DY = 26;
+  var BL = BAT_LEN * 1.15;                            // 見た目のバットの長さ(ゾーンのどこでも届くように)
+  var Tc = torsoAt(1);                                // ミートの瞬間の体
+  var gcx = Tc.sx + GRIP_DX, gcy = Tc.sy + GRIP_DY;
+  var thc = Math.atan2(ay - gcy, ax - gcx);           // ミートの瞬間のバットの向き(必ず(ax,ay)を通る)
   var th0 = -112 * D + Math.sin(time * 4) * 0.03;
-  var gsx = sx - 8, gsy = sy - 2 + Math.sin(time * 4) * 1.2;   // 構え: 手はうしろの肩のそば
-  var gfx = sx - 4, gfy = sy - 14, thf = thc + 100 * D;        // 振り抜き: 手は前の肩の上へ、バットは背中側へ
-  var gx, gy, th;
-  if (w <= 1) { gx = lerp(gsx, gcx, w); gy = lerp(gsy, gcy, w); th = lerp(th0, thc, w); }
-  else { gx = lerp(gcx, gfx, w2); gy = lerp(gcy, gfy, w2); th = lerp(thc, thf, w2); }
+  var thf = thc + 100 * D;                            // 振り抜き: バットは背中側へ
+  var gx = sx + GRIP_DX - 6 * w2, gy = sy + GRIP_DY - 8 * w2 + (swingT === null ? Math.sin(time * 4) * 0.8 : 0);
+  var th = w <= 1 ? lerp(th0, thc, w) : lerp(thc, thf, w2);
   var dxb = Math.cos(th), dyb = Math.sin(th);
 
   function drawBatShape() {
@@ -878,12 +880,12 @@ function drawBatter(ax, ay, swingT) {
     ctx.translate(gx, gy); ctx.rotate(th);
     ctx.lineCap = "round";
     ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BAT_LEN * 0.3, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BL * 0.3, 0); ctx.stroke();
     ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(BAT_LEN * 0.3, 0); ctx.lineTo(BAT_LEN, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(BL * 0.3, 0); ctx.lineTo(BL, 0); ctx.stroke();
     var gh = greenHalfU(save.levels.meet);       // スイートスポット(緑): ミートで広がる
     ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(BAT_LEN * (GREEN_C - gh), 0); ctx.lineTo(BAT_LEN * (GREEN_C + gh), 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(BL * (GREEN_C - gh), 0); ctx.lineTo(BL * (GREEN_C + gh), 0); ctx.stroke();
     ctx.restore();
   }
 
@@ -958,8 +960,8 @@ function drawBatter(ax, ay, swingT) {
 // 構えのままの立ち姿(タイトル・結果画面用)。足元(x, y)、大きさ sc
 function drawBatterStand(x, y, sc) {
   ctx.save();
-  ctx.translate(x, y); ctx.scale(sc, sc); ctx.translate(-300.5, -412);
-  drawBatter(400, ZONE_Y, null);
+  ctx.translate(x, y); ctx.scale(sc, sc); ctx.translate(-322, -412);
+  drawBatter(395, ZONE_Y, null);
   ctx.restore();
 }
 
