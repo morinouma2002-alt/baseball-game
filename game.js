@@ -29,31 +29,41 @@ var STAGES = [
   { name: "最終ボス",               pitches: 40, target: 28, ballTime: 0.80, types: ["straight", "vanish"],          windup: [0.35, 0.8] }
 ];
 
-// ステージごとの見た目(バッター b / ピッチャー p)。どれもオリジナルの人物。
-// skin 肌 / hair 髪 / jersey ユニフォーム / trim アクセント色 / cap ぼうし・ヘルメット / pants ズボン
-// 小物: glasses めがね / freckles そばかす / stache ひげ / tail ポニーテール / band ぼうしの線 / eyeblack アイブラック
+// ステージごとの見た目(バッター b は人物 / ピッチャー p は動物)。どれもオリジナル。
+// 共通: jersey ユニフォーム / trim アクセント色 / cap ぼうし・ヘルメット / pants ズボン
+// バッター b: skin 肌 / hair 髪 / 小物 glasses めがね / tail ポニーテール / eyeblack アイブラック
+// 動物 p: sp 種類 / pname なまえ / jp 種類の表示名 / fur 毛 / belly おなか・マズル / dark こい色(耳・しっぽ・たてがみ) / inner 耳の内側
 var LOOKS = [
   { b: { skin: "#f6d3b0", hair: "#5a3a2a", jersey: "#f7f4f5", trim: "#e8456f", cap: "#d63a63", pants: "#f2f0f2", num: "7" },
-    p: { skin: "#f6d3b0", hair: "#6b4a2f", jersey: "#f4f6ff", trim: "#2f6fd0", cap: "#2a5fc0", pants: "#e6e9f2", num: "1" } },
+    p: { sp: "rabbit",   pname: "ぴょんこ", jp: "うさぎ",     fur: "#fffaf6", belly: "#ffffff", dark: "#e9d6dc", inner: "#ffb0c4", jersey: "#f4f6ff", trim: "#2f6fd0", cap: "#2a5fc0", pants: "#e6e9f2", num: "1" } },
   { b: { skin: "#f1c9a0", hair: "#2b2b33", jersey: "#fff3dc", trim: "#f08a1c", cap: "#e07a10", pants: "#fff7e8", num: "4", tail: true },
-    p: { skin: "#e8b88a", hair: "#2b2b33", jersey: "#e9f7ea", trim: "#2e9c4f", cap: "#2e8a49", pants: "#eef6ee", num: "3", glasses: true } },
+    p: { sp: "cat",      pname: "にゃんた", jp: "ねこ",       fur: "#f2a24a", belly: "#fff1d6", dark: "#b8681c", inner: "#ffb0b8", jersey: "#e9f7ea", trim: "#2e9c4f", cap: "#2e8a49", pants: "#eef6ee", num: "3" } },
   { b: { skin: "#e8b88a", hair: "#7a4a1e", jersey: "#eaf3ff", trim: "#2f8fe0", cap: "#2f7fd0", pants: "#eef4fb", num: "10" },
-    p: { skin: "#f1c9a0", hair: "#c0561e", jersey: "#fff0e0", trim: "#e0402a", cap: "#d63a2a", pants: "#fbeee2", num: "18", band: "#fff" } },
+    p: { sp: "dog",      pname: "わんすけ", jp: "こいぬ",     fur: "#ecd0a0", belly: "#fff4e2", dark: "#8a5530", inner: "#ffb0b8", jersey: "#fff0e0", trim: "#e0402a", cap: "#d63a2a", pants: "#fbeee2", num: "18" } },
   { b: { skin: "#f6d3b0", hair: "#d8902a", jersey: "#f1ecff", trim: "#8a5ad8", cap: "#7a4ac8", pants: "#f3f0fb", num: "9", glasses: true },
-    p: { skin: "#d9a97e", hair: "#2a2a2a", jersey: "#efe6ff", trim: "#7a4ac8", cap: "#6a3ab8", pants: "#ece6f7", num: "6", freckles: true } },
+    p: { sp: "fox",      pname: "こんた",   jp: "きつね",     fur: "#f27c2a", belly: "#ffffff", dark: "#5a2e1a", inner: "#ffd0b0", jersey: "#efe6ff", trim: "#7a4ac8", cap: "#6a3ab8", pants: "#ece6f7", num: "6" } },
   { b: { skin: "#f1c9a0", hair: "#1f1f2a", jersey: "#f2f4f8", trim: "#1f3a7a", cap: "#1f3a7a", pants: "#eef0f5", num: "2", eyeblack: true },
-    p: { skin: "#f6d3b0", hair: "#8a6a3a", jersey: "#f4f6fb", trim: "#c0213a", cap: "#1f3a7a", pants: "#e8ebf2", num: "11", glasses: true, band: "#c0213a" } },
+    p: { sp: "tanuki",   pname: "ぽんた",   jp: "たぬき",     fur: "#b4906a", belly: "#ecd9b4", dark: "#4a3526", inner: "#7a5a40", jersey: "#f4f6fb", trim: "#c0213a", cap: "#1f3a7a", pants: "#e8ebf2", num: "11" } },
   { b: { skin: "#d9a97e", hair: "#2a1f1a", jersey: "#eaf1ea", trim: "#2a6a4a", cap: "#245a3e", pants: "#eef3ee", num: "5", tail: true },
-    p: { skin: "#e8b88a", hair: "#b8b8c0", jersey: "#e6efe9", trim: "#1f5a3a", cap: "#1f4a33", pants: "#e3ebe5", num: "21", stache: true } },
+    p: { sp: "penguin",  pname: "ぺんた",   jp: "ペンギン",   fur: "#34406a", belly: "#ffffff", dark: "#222a48", inner: "#ffa51f", jersey: "#e6efe9", trim: "#1f5a3a", cap: "#1f4a33", pants: "#e3ebe5", num: "21", shoe: "#ffa51f" } },
   { b: { skin: "#f6d3b0", hair: "#8a3ab8", jersey: "#2c2a3a", trim: "#c8a8ff", cap: "#4a3a7a", pants: "#3a3850", num: "13" },
-    p: { skin: "#f1c9a0", hair: "#6a2aa0", jersey: "#35305a", trim: "#d8b8ff", cap: "#4a3a7a", pants: "#2e2b48", num: "0", tail: true, band: "#d8b8ff" } },
+    p: { sp: "hedgehog", pname: "はりまる", jp: "ハリネズミ", fur: "#ffdcc2", belly: "#fff0e4", dark: "#6a4a8a", inner: "#ffb0b8", jersey: "#35305a", trim: "#d8b8ff", cap: "#4a3a7a", pants: "#2e2b48", num: "0" } },
   { b: { skin: "#e8b88a", hair: "#2b2b33", jersey: "#fff0f0", trim: "#d82a2a", cap: "#222230", pants: "#f5eaea", num: "1", eyeblack: true },
-    p: { skin: "#d9a97e", hair: "#1a1a1a", jersey: "#26262e", trim: "#e03a3a", cap: "#c82a2a", pants: "#2e2e38", num: "99", eyeblack: true, stache: true } }
+    p: { sp: "lion",     pname: "がおう",   jp: "ライオン",   fur: "#f6c45c", belly: "#fff0c8", dark: "#b4601e", inner: "#ffb0b8", jersey: "#26262e", trim: "#e03a3a", cap: "#c82a2a", pants: "#2e2e38", num: "99" } }
 ];
 // いま描くキャラの見た目: 打席中はそのステージ、それ以外(タイトルなど)は1ステージ目
+var lookOverride = null;   // ステージ選択のアイコンなど、別のステージの見た目で描くとき用
 function lookFor() {
-  var i = (scene === "batting" && g) ? g.idx : 0;
+  var i = lookOverride !== null ? lookOverride : (scene === "batting" && g) ? g.idx : 0;
   return LOOKS[i] || LOOKS[0];
+}
+// 「ぴょんこさん(うさぎ)」
+function pitcherLabel(i) { var p = LOOKS[i].p; return p.pname + "さん(" + p.jp + ")"; }
+// 小さなアイコン用: 指定ステージの動物ピッチャーを構えの姿で描く
+function drawPitcherIcon(i, x, y, s) {
+  var keep = pitcherHand;
+  lookOverride = i; drawPitcher(x, y, s, 0); lookOverride = null;
+  pitcherHand = keep;
 }
 
 var STATS = [
@@ -969,10 +979,136 @@ function drawBatterStand(x, y, sc) {
 // wind: 0〜1=ふりかぶり(1でリリース) / 1〜=リリース後の経過秒 / 2=フィニッシュ。左投げ。
 // 流れ: セット → ひざを上げる → ステップ → 腕を回す → リリース → フォロースルー
 var pitcherHand = { x: 404, y: 163 };      // 投げる手の画面上の位置(リリースのとき ballAt の開始点に合わせる)
+// ---- 動物ピッチャーのパーツ(小さく描くので、耳・しっぽ・くちばしを大きく単純な形にしている) ----
+function poly(pts, fill) {
+  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+  for (var i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+function spikes(cx, cy, r0, r1, n, a0, a1, fill) {   // ギザギザの円(たてがみ・はり)
+  ctx.beginPath();
+  for (var i = 0; i <= n * 2; i++) {
+    var a = a0 + (a1 - a0) * i / (n * 2), r = i % 2 ? r0 : r1;
+    var px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+function curveTail(x0, y0, cx, cy, x1, y1, w, fill, edge) {
+  ctx.lineCap = "round";
+  ctx.strokeStyle = edge; ctx.lineWidth = w + 2.4;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke();
+  ctx.strokeStyle = fill; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke();
+}
+function ell(x, y, rx, ry, rot, fill) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill();
+}
+// しっぽ・背中のはり(体のうしろ)。(tx, ty)=こしの右がわ
+function drawAnimalTail(P, tx, ty, sr, hipTop) {
+  switch (P.sp) {
+    case "rabbit": circle(tx + 5, ty - 2, 7.5, P.dark); circle(tx + 5, ty - 2, 6, "#fff"); break;
+    case "cat": curveTail(tx, ty, tx + 24, ty - 2, tx + 15, ty - 34, 6.5, P.fur, P.dark);
+      ctx.strokeStyle = P.dark; ctx.lineWidth = 6.5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(tx + 18, ty - 22); ctx.quadraticCurveTo(tx + 15, ty - 28, tx + 15, ty - 34); ctx.stroke(); break;
+    case "dog": curveTail(tx, ty, tx + 16, ty - 2, tx + 13, ty - 20, 6, P.fur, P.dark); break;
+    case "fox": ctx.save(); ctx.translate(tx + 10, ty - 8); ctx.rotate(-0.8);
+      ell(0, 0, 18, 9.5, 0, P.dark); ell(0, 0, 16.5, 8, 0, P.fur); ell(13, 0, 6.5, 6, 0, "#fff"); ctx.restore(); break;
+    case "tanuki": ctx.save(); ctx.translate(tx + 10, ty - 6); ctx.rotate(-0.6);
+      ell(0, 0, 13, 8.5, 0, P.dark); ell(0, 0, 11.5, 7, 0, P.fur);
+      ctx.strokeStyle = P.dark; ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.moveTo(-3, -6.5); ctx.lineTo(-3, 6.5); ctx.moveTo(4, -6); ctx.lineTo(4, 6); ctx.stroke(); ctx.restore(); break;
+    case "penguin": poly([tx - 2, ty - 4, tx + 11, ty + 5, tx - 2, ty + 8], P.dark); break;
+    case "hedgehog": {   // 背中のはり(肩からこしまで)
+      var ex = 0, pts = [sr.x - 2, sr.y - 2];
+      for (var k = 0; k <= 6; k++) {
+        var t = k / 6, bx = lerp(sr.x + 4, tx - 1, t), by = lerp(sr.y, ty + 4, t);
+        pts.push(bx + (k % 2 ? 6 : 15), by + (k % 2 ? 0 : -4));
+      }
+      pts.push(tx - 2, ty + 6); poly(pts, P.dark); break; }
+    case "lion": curveTail(tx, ty, tx + 18, ty - 2, tx + 17, ty - 22, 3.6, P.fur, P.dark);
+      circle(tx + 17, ty - 24, 6, P.dark); circle(tx + 17, ty - 24, 4.4, P.mane || "#c8742a"); break;
+  }
+}
+// 頭のうしろにあるもの(たてがみ・はり)
+function drawAnimalHeadBack(P, hx, hy) {
+  if (P.sp === "lion") { spikes(hx, hy + 1, 15.5, 21, 9, 0, Math.PI * 2, P.dark); circle(hx, hy + 1, 15, "#c8742a"); }
+  else if (P.sp === "hedgehog") spikes(hx, hy - 1, 17, 24, 8, Math.PI * 0.95, Math.PI * 2.05, P.dark);
+}
+// 顔(頭の丸 + 目・はな・くち)
+function drawAnimalFace(P, hx, hy) {
+  var sp = P.sp;
+  if (sp === "dog") { ell(hx - 12.5, hy + 3, 4.8, 9.5, 0.22, P.dark); ell(hx + 12.5, hy + 3, 4.8, 9.5, -0.22, P.dark); }   // たれ耳
+  circle(hx, hy, 12.8, P.fur);
+  // 顔の白いところ
+  if (sp === "penguin") { circle(hx - 5, hy + 4, 6.6, P.belly); circle(hx + 5, hy + 4, 6.6, P.belly); circle(hx, hy + 2, 6.4, P.belly); }
+  else if (sp === "hedgehog") ell(hx, hy + 4, 9.8, 8.4, 0, P.belly);
+  else if (sp === "fox") { poly([hx - 13, hy + 1, hx - 2, hy + 5, hx - 9, hy + 12], P.belly); poly([hx + 13, hy + 1, hx + 2, hy + 5, hx + 9, hy + 12], P.belly); ell(hx, hy + 6.8, 6.5, 4.8, 0, P.belly); }
+  else if (sp === "tanuki") { ell(hx, hy + 6.5, 8.6, 5.6, 0, P.belly); ell(hx - 5, hy + 1.4, 4.4, 3.8, 0.5, P.dark); ell(hx + 5, hy + 1.4, 4.4, 3.8, -0.5, P.dark); }
+  else ell(hx, hy + 6.4, sp === "dog" ? 8 : sp === "lion" ? 7.6 : 6.6, sp === "dog" ? 5.6 : 4.8, 0, P.belly);
+  // 目
+  var ey = hy + 1.4, er = sp === "penguin" ? 2.2 : 2.5;
+  circle(hx - 4.8, ey, er, "#2b2b33"); circle(hx + 4.8, ey, er, "#2b2b33");
+  circle(hx - 4.1, ey - 0.8, 0.9, "#fff"); circle(hx + 5.5, ey - 0.8, 0.9, "#fff");
+  circle(hx - 8.4, hy + 5, 2.3, "rgba(255,110,140,0.5)"); circle(hx + 8.4, hy + 5, 2.3, "rgba(255,110,140,0.5)");
+  // はな・くち
+  ctx.strokeStyle = "#7a3a2a"; ctx.lineWidth = 1.1; ctx.lineCap = "round";
+  if (sp === "penguin") {
+    poly([hx - 4.6, hy + 5, hx + 4.6, hy + 5, hx, hy + 11], "#ffa51f");
+    ctx.beginPath(); ctx.moveTo(hx - 3.6, hy + 6.8); ctx.lineTo(hx + 3.6, hy + 6.8); ctx.strokeStyle = "#d9760a"; ctx.stroke();
+    return;
+  }
+  var nose = sp === "rabbit" ? "#ff8fa8" : sp === "cat" ? "#ff8fa8" : sp === "lion" ? "#6a3a1a" : sp === "tanuki" ? "#2b2b33" : "#2b2b33";
+  var nr = sp === "dog" ? 2.7 : sp === "hedgehog" ? 2.2 : 1.9;
+  circle(hx, hy + 5, nr, nose);
+  ctx.beginPath(); ctx.arc(hx, hy + 7.2, 2.6, 0.25, Math.PI - 0.25); ctx.stroke();
+  if (sp === "rabbit") { ctx.fillStyle = "#fff"; ctx.fillRect(hx - 1.4, hy + 9.2, 2.8, 2.6); ctx.strokeStyle = "#cfa0ae"; ctx.lineWidth = 0.7; ctx.strokeRect(hx - 1.4, hy + 9.2, 2.8, 2.6); }
+  if (sp === "dog") ell(hx + 1, hy + 11, 1.8, 2.5, 0, "#ff7f9c");
+  if (sp === "cat") {   // ひげ
+    ctx.strokeStyle = "#5a4030"; ctx.lineWidth = 0.9;
+    for (var wi = -1; wi <= 1; wi += 2) for (var wk = 0; wk < 2; wk++) {
+      ctx.beginPath(); ctx.moveTo(hx + wi * 8, hy + 6 + wk * 2.2); ctx.lineTo(hx + wi * 16.5, hy + 4.2 + wk * 4.4); ctx.stroke();
+    }
+  }
+}
+// ぼうし(耳が出るところは耳を上からかさねる)
+function drawAnimalCap(P, hx, hy) {
+  var capc = P.cap;
+  ctx.fillStyle = capc;
+  ctx.beginPath(); ctx.arc(hx, hy - 3, 12.8, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hx, hy - 3.6, 14, 3.4, 0, 0, Math.PI); ctx.fill();    // つば
+  ctx.strokeStyle = P.trim; ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.arc(hx, hy - 3, 9.5, Math.PI * 1.12, Math.PI * 1.88); ctx.stroke();
+  var sp = P.sp, i, sd;
+  for (i = -1; i <= 1; i += 2) {
+    sd = i;
+    if (sp === "rabbit") {
+      ctx.save(); ctx.translate(hx + sd * 5.4, hy - 11); ctx.rotate(sd * 0.2);
+      ell(0, -11, 4.6, 13, 0, P.dark); ell(0, -11, 3.8, 12.2, 0, P.fur); ell(0, -10.5, 2, 9.4, 0, P.inner);
+      ell(0, 0.5, 5.4, 1.8, 0, P.trim); ctx.restore();
+    } else if (sp === "cat") {
+      poly([hx + sd * 3.4, hy - 12, hx + sd * 13, hy - 7, hx + sd * 11.6, hy - 26], P.dark);
+      poly([hx + sd * 4.8, hy - 12.5, hx + sd * 12, hy - 8.6, hx + sd * 10.8, hy - 23], P.fur);
+      poly([hx + sd * 6.8, hy - 13, hx + sd * 11, hy - 10.5, hx + sd * 10.4, hy - 19.5], P.inner);
+    } else if (sp === "fox") {
+      poly([hx + sd * 2, hy - 12, hx + sd * 13, hy - 8, hx + sd * 10.5, hy - 29], P.dark);
+      poly([hx + sd * 3.2, hy - 12.5, hx + sd * 12, hy - 9.2, hx + sd * 10.3, hy - 25], P.fur);
+      poly([hx + sd * 6, hy - 13, hx + sd * 10.8, hy - 11, hx + sd * 10.2, hy - 21], P.inner);
+      poly([hx + sd * 9.4, hy - 22, hx + sd * 11.1, hy - 23.2, hx + sd * 10.5, hy - 29], P.dark);
+    } else if (sp === "tanuki") {
+      circle(hx + sd * 10.5, hy - 12.5, 5.4, P.dark); circle(hx + sd * 10.5, hy - 12.5, 3, P.inner);
+    } else if (sp === "lion") {
+      circle(hx + sd * 11, hy - 13.5, 5.2, P.dark); circle(hx + sd * 11, hy - 13.5, 4.2, P.fur); circle(hx + sd * 11, hy - 13.5, 2, P.dark);
+    } else if (sp === "hedgehog") {
+      circle(hx + sd * 11.5, hy - 10, 3.8, P.dark); circle(hx + sd * 11.5, hy - 10, 3, P.fur); circle(hx + sd * 11.5, hy - 10, 1.4, P.inner);
+    }
+  }
+}
+
 function drawPitcher(x, y, s, wind) {
   var LK = lookFor().p;
-  var skin = LK.skin, jersey = LK.jersey, trim = LK.trim, capc = LK.cap;
-  var pantsC = LK.pants, glove = "#8a5a2b";
+  var skin = LK.fur, jersey = LK.jersey, trim = LK.trim;
+  var pantsC = LK.pants, glove = "#8a5a2b", shoeC = LK.shoe || "#26262e";
   var u = Math.min(1, wind), fk = wind > 1 ? ss(0, 0.25, wind - 1) : 0;
   var cam = 0.2, ccs = Math.cos(cam), csn = Math.sin(cam);
   var turn = ss(0.1, 0.4, u) - ss(0.7, 0.95, u);        // 横向きになる度合い
@@ -1029,10 +1165,12 @@ function drawPitcher(x, y, s, wind) {
   // 影
   ctx.fillStyle = "rgba(0,0,0,0.15)";
   ctx.beginPath(); ctx.ellipse(0, 2, 26, 6, 0, 0, Math.PI * 2); ctx.fill();
+  // しっぽ・背中のはり(体のうしろ)
+  drawAnimalTail(LK, hx + hh + 3, -hipH + 2, sr, -hipH);
   // 足 + スパイク
   drawLeg(hx - hh, -hipH, lk.ex, lk.ey, lk.tx, lk.ty, 14, pantsC, trim);
   drawLeg(hx + hh, -hipH, pk.ex, pk.ey, pk.tx, pk.ty, 14, pantsC, trim);
-  drawShoe(lead.x, lead.y, -1, "#26262e"); drawShoe(pivot.x, pivot.y, 1, "#26262e");
+  drawShoe(lead.x, lead.y, -1, shoeC); drawShoe(pivot.x, pivot.y, 1, shoeC);
   // パンツ + ジャージ + ベルト
   ctx.fillStyle = pantsC;
   roundRect(hx - hh - 7, -hipH - 6, hh * 2 + 14, 16, 6); ctx.fill();
@@ -1042,39 +1180,12 @@ function drawPitcher(x, y, s, wind) {
   ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.moveTo(hx - hh - 5, -hipH - 4); ctx.lineTo(hx + hh + 5, -hipH - 4); ctx.stroke();
   drawNumber(sxc, (syc - hipH) / 2 - 2, LK.num, trim, LK.num.length > 1 ? 11 : 13);
-  // 首 + 頭 + ぼうし
-  ctx.strokeStyle = skin; ctx.lineWidth = 7; ctx.lineCap = "round";
+  // 首 + 頭(動物) + ぼうし
+  ctx.strokeStyle = LK.sp === "penguin" ? LK.dark : skin; ctx.lineWidth = 8; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(sxc, syc + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
-  if (LK.tail) {   // ポニーテール(顔のうしろ)
-    ctx.strokeStyle = LK.hair; ctx.lineWidth = 5; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(hdx + 6, hdy - 4); ctx.quadraticCurveTo(hdx + 19, hdy - 2, hdx + 16, hdy + 11); ctx.stroke();
-  }
-  circle(hdx, hdy, 10.5, skin);
-  ctx.fillStyle = LK.hair;   // ぼうしの下からのぞく髪
-  ctx.beginPath(); ctx.ellipse(hdx - 9, hdy + 1, 2.8, 5, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(hdx + 9, hdy + 1, 2.8, 5, 0, 0, Math.PI * 2); ctx.fill();
-  circle(hdx - 3.8, hdy - 0.5, 1.5, "#2b2b33"); circle(hdx + 3.8, hdy - 0.5, 1.5, "#2b2b33");
-  circle(hdx - 3.3, hdy - 1.1, 0.6, "#fff"); circle(hdx + 4.3, hdy - 1.1, 0.6, "#fff");
-  circle(hdx - 6.5, hdy + 3.6, 2.3, "rgba(255,120,140,0.45)"); circle(hdx + 6.5, hdy + 3.6, 2.3, "rgba(255,120,140,0.45)");
-  if (LK.freckles) {
-    ctx.fillStyle = "rgba(150,80,40,0.7)";
-    for (var fi = -1; fi <= 1; fi += 2) { circle(hdx + fi * 5.5, hdy + 1.6, 0.6, ctx.fillStyle); circle(hdx + fi * 3.8, hdy + 2.6, 0.6, ctx.fillStyle); circle(hdx + fi * 7, hdy + 2.6, 0.6, ctx.fillStyle); }
-  }
-  if (LK.eyeblack) { ctx.fillStyle = "rgba(20,20,30,0.7)"; ctx.fillRect(hdx - 6, hdy + 1.6, 4.4, 1.5); ctx.fillRect(hdx + 1.6, hdy + 1.6, 4.4, 1.5); }
-  if (LK.glasses) {
-    ctx.strokeStyle = "#2b2b33"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(hdx - 3.8, hdy - 0.5, 3.3, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(hdx + 3.8, hdy - 0.5, 3.3, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(hdx - 0.5, hdy - 0.5); ctx.lineTo(hdx + 0.5, hdy - 0.5); ctx.stroke();
-  }
-  ctx.strokeStyle = "#a5533d"; ctx.lineWidth = 1.2;   // くち(にっこり)
-  ctx.beginPath(); ctx.arc(hdx, hdy + 4.2, 2.6, 0.2, Math.PI - 0.2); ctx.stroke();
-  if (LK.stache) { ctx.fillStyle = LK.hair; roundRect(hdx - 4.5, hdy + 2.6, 9, 2.2, 1.1); ctx.fill(); }
-  circle(hdx - 10.3, hdy + 1, 2, skin); circle(hdx + 10.3, hdy + 1, 2, skin);
-  ctx.fillStyle = capc;
-  ctx.beginPath(); ctx.arc(hdx, hdy - 1.5, 11.5, Math.PI, 0); ctx.closePath(); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(hdx, hdy - 3, 12.5, 3.4, 0, 0, Math.PI); ctx.fill();   // つば
-  if (LK.band) { ctx.strokeStyle = LK.band; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hdx, hdy - 1.5, 8.5, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+  drawAnimalHeadBack(LK, hdx, hdy);
+  drawAnimalFace(LK, hdx, hdy);
+  drawAnimalCap(LK, hdx, hdy);
   // グラブ側のうで + グラブ
   limb(sg.x, sg.y + 1, ikG.ex, ikG.ey, ikG.tx, ikG.ty, 10, jersey, 7, skin);
   circle(sg.x, sg.y + 1, 5.5, jersey);
@@ -1084,7 +1195,7 @@ function drawPitcher(x, y, s, wind) {
   // 投げる側のうで
   limb(sr.x, sr.y + 1, rE.x, rE.y, rH.x, rH.y, 10, jersey, 7, skin);
   circle(sr.x, sr.y + 1, 5.5, jersey);
-  circle(rH.x, rH.y, 3.6, skin);
+  circle(rH.x, rH.y, 4, skin);
   ctx.restore();
 }
 
@@ -1216,11 +1327,16 @@ function drawStageSelect() {
           ctx.lineWidth = 3; ctx.strokeStyle = en ? "#ff9ec4" : "#a8a8b8"; ctx.stroke();
           text("ステージ " + (i + 1), x + 12, y + 20, 14, en ? "#ff6f91" : "#8a8a9a", "left");
           if (save.cleared[i]) text("★クリア", x + w - 10, y + 20, 14, "#e0a100", "right");
-          text(st.name, x + w / 2, y + 50, 16, en ? "#4a3f8f" : "#8a8a9a", "center", null, w - 16);
-          text("球数 " + st.pitches + "  目標HR " + st.target, x + w / 2, y + 80, 14, en ? "#555" : "#8a8a9a", "center", null, w - 16);
+          text(st.name, x + w / 2, y + 44, 16, en ? "#4a3f8f" : "#8a8a9a", "center", null, w - 16);
           if (en) {
-            text("ベスト HR " + save.best[i], x + w / 2, y + 106, 14, "#888");
+            drawPitcherIcon(i, x + w - 36, y + h - 6, 0.5);   // 動物ピッチャーのアイコン
+            text("投手", x + 12, y + 66, 11, "#999", "left");
+            text(LOOKS[i].p.pname, x + 12, y + 83, 14, "#d6336c", "left", null, 84);
+            text("(" + LOOKS[i].p.jp + ")", x + 12, y + 98, 11, "#777", "left", null, 84);
+            text("球数 " + st.pitches + " 目標HR " + st.target, x + 12, y + 111, 11, "#555", "left", null, 110);
+            text("ベスト HR " + save.best[i], x + 12, y + 124, 11, "#888", "left");
           } else {
+            text("球数 " + st.pitches + "  目標HR " + st.target, x + w / 2, y + 74, 14, "#8a8a9a", "center", null, w - 16);
             // かぎマーク
             ctx.fillStyle = "#8a8a9a"; roundRect(x + w / 2 - 14, y + 94, 28, 22, 4); ctx.fill();
             ctx.strokeStyle = "#8a8a9a"; ctx.lineWidth = 4;
@@ -1527,7 +1643,7 @@ function drawBatting() {
   } else if (g.phase === "result") {
     txt = popupText(null);
   }
-  if (g.phase === "intro") { showPop = true; txt = "プレイボール!"; }
+  if (g.phase === "intro") { showPop = true; txt = "プレイボール!"; sub = "ピッチャーは " + pitcherLabel(g.idx); }
   if (showPop) {
     var hr = g.out && g.out.kind === "hr";
     var sc = 1 + Math.max(0, 0.3 - g.t) * (hr ? 2.2 : 1.2);
@@ -1621,6 +1737,8 @@ function drawResult() {
     drawBatterStand(400, 352, 0.9);
   }
   text(st.name + "   ホームラン " + r.hr + " / " + r.target, 400, 130, 22, "#4a3f8f");
+  text("あいて: " + pitcherLabel(r.idx), 640, 192, 14, "#d6336c", "center", null, 200);
+  drawPitcherIcon(r.idx, 640, 346, 0.85);
   text("もらったポイント: +" + r.coins + (r.bonus ? "  (クリアボーナス " + r.bonus + " 含む)" : ""), 400, 165, 22, "#a0680a", "center", null, 760);
   if (r.cleared && r.first && r.idx < STAGES.length - 1) text("次のステージが解放されたよ!", 400, 195, 18, "#d6336c");
   if (r.allClear) text("全ステージ制覇! おめでとう!", 400, 195, 22, "#d6336c");
