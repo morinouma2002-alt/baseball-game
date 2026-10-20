@@ -19,37 +19,37 @@ var ctx = canvas.getContext("2d");
 // ballTime: 投球から捕手に届くまでの秒数 / types: 球種 / windup: 投球前の間(秒)の範囲
 var FIX = [0.55, 0.55];
 var STAGES = [
-  { name: "新人くん",               pitches: 10, target: 6,  ballTime: 1.60, types: ["straight"],                    windup: FIX },
-  { name: "草野球の先輩",           pitches: 12, target: 8,  ballTime: 1.40, types: ["straight"],                    windup: FIX },
-  { name: "商店街のエース",         pitches: 15, target: 10, ballTime: 1.25, types: ["straight"],                    windup: FIX },
-  { name: "河川敷のトリックスター", pitches: 20, target: 13, ballTime: 1.15, types: ["bounce", "straight"],          windup: FIX },
-  { name: "大学の左腕",             pitches: 25, target: 17, ballTime: 1.10, types: ["drop", "straight"],            windup: FIX },
-  { name: "ベテラン投手",           pitches: 30, target: 20, ballTime: 1.00, types: ["straight", "bounce", "drop"],  windup: [0.35, 0.8] },
-  { name: "魔球使い",               pitches: 35, target: 24, ballTime: 0.95, types: ["straight", "bounce", "drop", "vanish"], windup: [0.35, 0.8] },
-  { name: "最終ボス",               pitches: 40, target: 28, ballTime: 0.80, types: ["straight", "vanish"],          windup: [0.35, 0.8] }
+  { name: "新人くん",               pitches: 10, target: 6,  ballTime: 1.60, types: ["straight", "slow"],            windup: FIX },
+  { name: "草野球の先輩",           pitches: 12, target: 8,  ballTime: 1.40, types: ["straight", "curve"],          windup: FIX },
+  { name: "商店街のエース",         pitches: 15, target: 10, ballTime: 1.25, types: ["straight", "change"],         windup: FIX },
+  { name: "河川敷のトリックスター", pitches: 20, target: 13, ballTime: 1.15, types: ["bounce", "rising", "slider"],  windup: FIX },
+  { name: "大学の左腕",             pitches: 25, target: 17, ballTime: 1.10, types: ["drop", "sinker", "straight"],  windup: [0.3, 0.3] },
+  { name: "ベテラン投手",           pitches: 30, target: 20, ballTime: 1.00, types: ["slider", "change", "curve", "straight"],  windup: [0.35, 0.8] },
+  { name: "魔球使い",               pitches: 35, target: 24, ballTime: 0.95, types: ["knuckle", "slider", "drop", "vanish"], windup: [0.35, 0.8] },
+  { name: "最終ボス",               pitches: 40, target: 28, ballTime: 0.80, types: ["rising", "vanish", "curve", "sinker", "straight"], windup: [0.35, 0.8] }
 ];
 
 // ステージごとの見た目(バッター b は人物 / ピッチャー p は動物)。どれもオリジナル。
 // 共通: jersey ユニフォーム / trim アクセント色 / cap ぼうし・ヘルメット / pants ズボン
 // バッター b: skin 肌 / hair 髪 / 小物 glasses めがね / tail ポニーテール / eyeblack アイブラック
-// 動物 p: sp 種類 / pname なまえ / jp 種類の表示名 / fur 毛 / belly おなか・マズル / dark こい色(耳・しっぽ・たてがみ) / inner 耳の内側
+// 動物 p: form 投げ方(over オーバー / side サイド / bigwind 大きなふりかぶり / under アンダー / quick クイック / threeq 3/4 / tornado トルネード / power ダイナミック) / sp 種類 / pname なまえ / jp 種類の表示名 / fur 毛 / belly おなか・マズル / dark こい色(耳・しっぽ・たてがみ) / inner 耳の内側
 var LOOKS = [
   { b: { skin: "#f6d3b0", hair: "#5a3a2a", jersey: "#f7f4f5", trim: "#e8456f", cap: "#d63a63", pants: "#f2f0f2", num: "7" },
-    p: { sp: "rabbit",   pname: "ぴょんこ", jp: "うさぎ",     fur: "#fffaf6", belly: "#ffffff", dark: "#e9d6dc", inner: "#ffb0c4", jersey: "#f4f6ff", trim: "#2f6fd0", cap: "#2a5fc0", pants: "#e6e9f2", num: "1" } },
+    p: { form: "over", sp: "rabbit",   pname: "ぴょんこ", jp: "うさぎ",     fur: "#fffaf6", belly: "#ffffff", dark: "#e9d6dc", inner: "#ffb0c4", jersey: "#f4f6ff", trim: "#2f6fd0", cap: "#2a5fc0", pants: "#e6e9f2", num: "1" } },
   { b: { skin: "#f1c9a0", hair: "#2b2b33", jersey: "#fff3dc", trim: "#f08a1c", cap: "#e07a10", pants: "#fff7e8", num: "4", tail: true },
-    p: { sp: "cat",      pname: "にゃんた", jp: "ねこ",       fur: "#f2a24a", belly: "#fff1d6", dark: "#b8681c", inner: "#ffb0b8", jersey: "#e9f7ea", trim: "#2e9c4f", cap: "#2e8a49", pants: "#eef6ee", num: "3" } },
+    p: { form: "side", sp: "cat",      pname: "にゃんた", jp: "ねこ",       fur: "#f2a24a", belly: "#fff1d6", dark: "#b8681c", inner: "#ffb0b8", jersey: "#e9f7ea", trim: "#2e9c4f", cap: "#2e8a49", pants: "#eef6ee", num: "3" } },
   { b: { skin: "#e8b88a", hair: "#7a4a1e", jersey: "#eaf3ff", trim: "#2f8fe0", cap: "#2f7fd0", pants: "#eef4fb", num: "10" },
-    p: { sp: "dog",      pname: "わんすけ", jp: "こいぬ",     fur: "#ecd0a0", belly: "#fff4e2", dark: "#8a5530", inner: "#ffb0b8", jersey: "#fff0e0", trim: "#e0402a", cap: "#d63a2a", pants: "#fbeee2", num: "18" } },
+    p: { form: "bigwind", sp: "dog",      pname: "わんすけ", jp: "こいぬ",     fur: "#ecd0a0", belly: "#fff4e2", dark: "#8a5530", inner: "#ffb0b8", jersey: "#fff0e0", trim: "#e0402a", cap: "#d63a2a", pants: "#fbeee2", num: "18" } },
   { b: { skin: "#f6d3b0", hair: "#d8902a", jersey: "#f1ecff", trim: "#8a5ad8", cap: "#7a4ac8", pants: "#f3f0fb", num: "9", glasses: true },
-    p: { sp: "fox",      pname: "こんた",   jp: "きつね",     fur: "#f27c2a", belly: "#ffffff", dark: "#5a2e1a", inner: "#ffd0b0", jersey: "#efe6ff", trim: "#7a4ac8", cap: "#6a3ab8", pants: "#ece6f7", num: "6" } },
+    p: { form: "under", sp: "fox",      pname: "こんた",   jp: "きつね",     fur: "#f27c2a", belly: "#ffffff", dark: "#5a2e1a", inner: "#ffd0b0", jersey: "#efe6ff", trim: "#7a4ac8", cap: "#6a3ab8", pants: "#ece6f7", num: "6" } },
   { b: { skin: "#f1c9a0", hair: "#1f1f2a", jersey: "#f2f4f8", trim: "#1f3a7a", cap: "#1f3a7a", pants: "#eef0f5", num: "2", eyeblack: true },
-    p: { sp: "tanuki",   pname: "ぽんた",   jp: "たぬき",     fur: "#b4906a", belly: "#ecd9b4", dark: "#4a3526", inner: "#7a5a40", jersey: "#f4f6fb", trim: "#c0213a", cap: "#1f3a7a", pants: "#e8ebf2", num: "11" } },
+    p: { form: "quick", sp: "tanuki",   pname: "ぽんた",   jp: "たぬき",     fur: "#b4906a", belly: "#ecd9b4", dark: "#4a3526", inner: "#7a5a40", jersey: "#f4f6fb", trim: "#c0213a", cap: "#1f3a7a", pants: "#e8ebf2", num: "11" } },
   { b: { skin: "#d9a97e", hair: "#2a1f1a", jersey: "#eaf1ea", trim: "#2a6a4a", cap: "#245a3e", pants: "#eef3ee", num: "5", tail: true },
-    p: { sp: "penguin",  pname: "ぺんた",   jp: "ペンギン",   fur: "#34406a", belly: "#ffffff", dark: "#222a48", inner: "#ffa51f", jersey: "#e6efe9", trim: "#1f5a3a", cap: "#1f4a33", pants: "#e3ebe5", num: "21", shoe: "#ffa51f" } },
+    p: { form: "threeq", sp: "penguin",  pname: "ぺんた",   jp: "ペンギン",   fur: "#34406a", belly: "#ffffff", dark: "#222a48", inner: "#ffa51f", jersey: "#e6efe9", trim: "#1f5a3a", cap: "#1f4a33", pants: "#e3ebe5", num: "21", shoe: "#ffa51f" } },
   { b: { skin: "#f6d3b0", hair: "#8a3ab8", jersey: "#2c2a3a", trim: "#c8a8ff", cap: "#4a3a7a", pants: "#3a3850", num: "13" },
-    p: { sp: "hedgehog", pname: "はりまる", jp: "ハリネズミ", fur: "#ffdcc2", belly: "#fff0e4", dark: "#6a4a8a", inner: "#ffb0b8", jersey: "#35305a", trim: "#d8b8ff", cap: "#4a3a7a", pants: "#2e2b48", num: "0" } },
+    p: { form: "tornado", sp: "hedgehog", pname: "はりまる", jp: "ハリネズミ", fur: "#ffdcc2", belly: "#fff0e4", dark: "#6a4a8a", inner: "#ffb0b8", jersey: "#35305a", trim: "#d8b8ff", cap: "#4a3a7a", pants: "#2e2b48", num: "0" } },
   { b: { skin: "#e8b88a", hair: "#2b2b33", jersey: "#fff0f0", trim: "#d82a2a", cap: "#222230", pants: "#f5eaea", num: "1", eyeblack: true },
-    p: { sp: "lion",     pname: "がおう",   jp: "ライオン",   fur: "#f6c45c", belly: "#fff0c8", dark: "#b4601e", inner: "#ffb0b8", jersey: "#26262e", trim: "#e03a3a", cap: "#c82a2a", pants: "#2e2e38", num: "99" } }
+    p: { form: "power", sp: "lion",     pname: "がおう",   jp: "ライオン",   fur: "#f6c45c", belly: "#fff0c8", dark: "#b4601e", inner: "#ffb0b8", jersey: "#26262e", trim: "#e03a3a", cap: "#c82a2a", pants: "#2e2e38", num: "99" } }
 ];
 // いま描くキャラの見た目: 打席中はそのステージ、それ以外(タイトルなど)は1ステージ目
 var lookOverride = null;   // ステージ選択のアイコンなど、別のステージの見た目で描くとき用
@@ -300,6 +300,8 @@ function setupPitch() {
   g.ballTime = st.ballTime * (0.95 + rnd() * 0.1);
   g.type = st.types[Math.floor(rnd() * st.types.length)];
   g.windT = st.windup[0] + rnd() * (st.windup[1] - st.windup[0]);
+  g.rel = FORM_REL[LOOKS[g.idx].p.form] || FORM_REL.over;
+  g.side = rnd() < 0.5 ? -1 : 1;
   g.bx = PLATE.x + (rnd() * 2 - 1) * 14;
   g.by = ZONE_Y + (rnd() * 2 - 1) * 28;
   g.swung = false; g.contactDone = false; g.out = null; g.flight = null;
@@ -1109,16 +1111,20 @@ function drawPitcher(x, y, s, wind) {
   var LK = lookFor().p;
   var skin = LK.fur, jersey = LK.jersey, trim = LK.trim;
   var pantsC = LK.pants, glove = "#8a5a2b", shoeC = LK.shoe || "#26262e";
+  var FM = LK.form || "over";
   var u = Math.min(1, wind), fk = wind > 1 ? ss(0, 0.25, wind - 1) : 0;
   var cam = 0.2, ccs = Math.cos(cam), csn = Math.sin(cam);
   var turn = ss(0.1, 0.4, u) - ss(0.7, 0.95, u);        // 横向きになる度合い
-  var A = ss(0.1, 0.42, u), B = ss(0.48, 0.88, u);       // A=ひざ上げ B=ステップ
+  var A = ss(0.1, 0.42, u) * (FM === "quick" ? 0.25 : FM === "power" ? 1.1 : 1), B = ss(0.48, 0.88, u);       // A=ひざ上げ B=ステップ
+  var Wd = FM === "bigwind" ? ss(0.04, 0.28, u) - ss(0.45, 0.72, u) : 0;               // 両手を頭の上にあげる度合い
+  var Tw = FM === "tornado" ? ss(0.12, 0.38, u) - ss(0.52, 0.78, u) : 0;               // 背中をバッターに向ける度合い
+  var leap = (FM === "tornado" ? 13 : FM === "power" ? 8 : 0) * Math.sin(Math.PI * clamp((u - 0.4) / 0.5, 0, 1));
   var cockP = ss(0.35, 0.72, u), acc = ss(0.72, 1, u);   // 腕の引き / 腕の振り
-  var hipH = 71 - 2 * A - 9 * B - 3 * fk;
+  var hipH = 71 - 2 * A - 9 * B - 3 * fk + leap;
   var hx = -2 * A + B;
-  var hh = 9.5 - 3 * turn, hw = 17 - 7 * turn;
-  var L = 0.04 + 0.12 * B + 0.28 * acc + 0.3 * fk;       // 前傾
-  var T = 0.1 * cockP + 0.18 * acc + 0.1 * fk;           // 投げる側の肩が下がる
+  var hh = 9.5 - 3 * turn - 5 * Tw, hw = 17 - 7 * turn - 12 * Tw;
+  var L = 0.04 + 0.12 * B + 0.28 * acc + 0.3 * fk - 0.24 * Wd - 0.2 * Tw + (FM === "under" ? 0.1 * acc : 0);       // 前傾
+  var T = 0.1 * cockP + 0.18 * acc + 0.1 * fk + (FM === "side" ? 0.28 * acc : FM === "threeq" ? 0.1 * acc : 0);   // 投げる側の肩が下がる
   var sxc = hx, syc = -hipH - TORSO_L * Math.cos(L) + TORSO_L * Math.sin(L) * csn;
   var sg = { x: sxc - hw * Math.cos(T), y: syc - hw * Math.sin(T) };   // グラブ側の肩(画面左)
   var sr = { x: sxc + hw * Math.cos(T), y: syc + hw * Math.sin(T) };   // 投げる側の肩(画面右)
@@ -1129,6 +1135,7 @@ function drawPitcher(x, y, s, wind) {
   var f1x = lerp(restF.x, liftF.x, A), f1y = lerp(restF.y, liftF.y, A);
   var lead = { x: lerp(f1x, landF.x, B), y: lerp(f1y, landF.y, B) };
   var pivot = { x: 11 + 3 * fk, y: -13 * fk };
+  lead.y -= leap; pivot.y -= leap;   // とびあがるときは足も浮く
   var lk = ik(hx - hh, -hipH, lead.x, lead.y - 5, LEG_L, LEG_L, -1, 0.2);
   var pk = ik(hx + hh, -hipH, pivot.x, pivot.y - 5, LEG_L, LEG_L, 1, 0.2);
 
@@ -1137,6 +1144,9 @@ function drawPitcher(x, y, s, wind) {
   var Uck = [0.97, 0.1, -0.2], Fck = [0.25, 0.88, -0.4];
   var Urel = [0.15, 0.5, 0.85], Frel = [-0.25, 0.5, 0.83];
   var Ufol = [-0.3, -0.6, 0.75], Ffol = [-0.85, -0.45, 0.3];
+  if (FM === "side") { Urel = [0.92, 0.0, 0.4]; Frel = [0.9, 0.05, 0.45]; Ufol = [-0.5, -0.2, 0.84]; Ffol = [-0.8, -0.3, 0.5]; }
+  else if (FM === "under") { Uck = [0.4, -0.6, -0.7]; Fck = [0.2, -0.5, -0.85]; Urel = [0.1, -0.75, 0.65]; Frel = [0.0, -0.55, 0.85]; Ufol = [-0.2, 0.2, 0.95]; Ffol = [-0.4, 0.5, 0.8]; }
+  else if (FM === "threeq") { Uck = [0.95, 0.3, -0.2]; Urel = [0.25, 0.25, 0.93]; Frel = [-0.2, 0.25, 0.95]; }
   var accF = acc * acc;
   var U = mix3(mix3(mix3(Udn, Uck, cockP), Urel, acc), Ufol, fk);
   var F = mix3(mix3(mix3(Fdn, Fck, cockP), Frel, accF), Ffol, fk);
@@ -1147,7 +1157,7 @@ function drawPitcher(x, y, s, wind) {
   var pu = proj(U, ARM1), pf = proj(F, ARM2);
   var fkE = { x: sr.x + pu.x, y: sr.y + pu.y };
   var fkH = { x: fkE.x + pf.x, y: fkE.y + pf.y };
-  var chest = { x: sxc + 3, y: syc + 14 };
+  var chest = { x: sxc + 3 - 3 * Wd, y: syc + 14 - 46 * Wd };
   var ikR = ik(sr.x, sr.y, chest.x, chest.y, ARM1, ARM2, 0.3, 1);
   var bI = wind > 1 ? 0 : 1 - ss(0.25, 0.5, u);
   var rE = { x: lerp(fkE.x, ikR.ex, bI), y: lerp(fkE.y, ikR.ey, bI) };
@@ -1156,6 +1166,7 @@ function drawPitcher(x, y, s, wind) {
   var gOut = ss(0.4, 0.85, u);
   var gT = { x: lerp(sxc - 3, sxc - 26, gOut), y: lerp(syc + 14, syc + 4, gOut) };
   gT = { x: lerp(gT.x, sxc - 14, fk), y: lerp(gT.y, syc + 22, fk) };
+  gT = { x: lerp(gT.x, sxc - 6, Wd), y: lerp(gT.y, syc - 32, Wd) };
   var ikG = ik(sg.x, sg.y, gT.x, gT.y, ARM1, ARM2, -0.4, 1);
 
   pitcherHand = { x: x + rH.x * s, y: y + rH.y * s };
@@ -1208,19 +1219,25 @@ function drawBall(x, y, r) {
 }
 
 // 投球中のボールの位置。手前に来るほど速く見える(p^1.6)
+// 投げ方ごとの、ボールが手をはなれる位置(drawPitcher の手の位置に合わせてある)
+var FORM_REL = { over: { x: 404, y: 161 }, side: { x: 427, y: 173 }, bigwind: { x: 404, y: 161 }, under: { x: 406, y: 191 }, quick: { x: 405, y: 161 }, threeq: { x: 406, y: 169 }, tornado: { x: 404, y: 161 }, power: { x: 404, y: 161 } };
 function ballAt(pitchT) {
   var T = g.ballTime, p = pitchT / T;
   if (p > 1) {
     var ex = Math.min(1, (pitchT - T) / PASS_T);
     return { x: g.bx, y: g.by + 28 * ex, r: 9 - ex, a: 1, sx: g.bx, sy: 400 };
   }
-  var e = Math.pow(p, 1.6);
-  var tgt = g.by - (g.type === "drop" ? 60 : 0);
-  var x = 404 + (g.bx - 404) * e;
-  var line = 160 + (tgt - 160) * e;
+  // 球種ごとの軌道。どの球種も p=1 で必ず (g.bx, g.by) に着く(横・縦のズレは p=0 と p=1 で 0)
+  var ty = g.type, rl = g.rel || FORM_REL.over, sd = g.side || 1;
+  var e = Math.pow(p, ty === "change" ? 2.3 : ty === "slow" ? 1.15 : ty === "rising" ? 1.35 : 1.6);
+  var dropAmt = ty === "drop" ? 60 : ty === "sinker" ? 34 : 0;
+  var tgt = g.by - dropAmt;
+  var x = rl.x + (g.bx - rl.x) * e;
+  var line = rl.y + (tgt - rl.y) * e;
   var gy = 165 + (400 - 165) * e;      // その奥行きでの地面の高さ
   var y = line;
-  if (g.type === "bounce") {
+  var sn = Math.sin(Math.PI * p);
+  if (ty === "bounce") {
     if (p < 0.55) {
       var s1 = p / 0.55;
       y = line + (gy - line) * s1 * s1;
@@ -1228,11 +1245,22 @@ function ballAt(pitchT) {
       var s2 = (p - 0.55) / 0.45;
       y = gy + (line - gy) * Math.sqrt(s2);
     }
-  } else if (g.type === "drop" && p > 0.65) {
+  } else if ((ty === "drop" || ty === "sinker") && p > 0.65) {
     var s3 = (p - 0.65) / 0.35;
-    y = line + 60 * s3 * s3;
+    y = line + dropAmt * s3 * s3;
+    if (ty === "sinker") x += sd * 22 * sn * p;                  // シンカー: 横にもすこし沈む
+  } else if (ty === "curve") {          // カーブ: 大きく山なりに曲がって落ちる
+    x += sd * 60 * sn * (1 - p) * 1.6; y -= 50 * sn;
+  } else if (ty === "slider") {         // スライダー: 後半に横へ鋭く曲がる
+    x += sd * 78 * sn * p * p; y += 6 * sn;
+  } else if (ty === "knuckle") {        // ナックル: ふらふら揺れる
+    x += 15 * Math.sin(p * 21) * sn; y += 11 * Math.sin(p * 16 + 1) * sn;
+  } else if (ty === "rising") {         // ライジング: 浮き上がって見える
+    y -= 30 * sn;
+  } else if (ty === "slow") {           // スローボール: ふわっと高く山なり
+    y -= 86 * sn;
   }
-  var a = (g.type === "vanish" && p > 0.45 && p < 0.78) ? 0 : 1;
+  var a = (ty === "vanish" && p > 0.45 && p < 0.78) ? 0 : 1;
   return { x: x, y: y, r: 3 + 6 * p, a: a, sx: x, sy: gy };   // 大きさは一定のペースでふつうに大きくなる(近づいても急にでかくならない)
 }
 
