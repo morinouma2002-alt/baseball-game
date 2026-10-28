@@ -791,9 +791,15 @@ var BAT_LEN = 96;
 var ARM1 = 31, ARM2 = 29, LEG_L = 36, TORSO_L = 44, HIP_Y = 350;
 function lerp(a, b, t) { return a + (b - a) * t; }
 function ss(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
-function shade(hex, k) {   // "#rrggbb" を k 倍の明るさに
-  var n = parseInt(hex.slice(1), 16);
-  return "rgb(" + Math.round((n >> 16 & 255) * k) + "," + Math.round((n >> 8 & 255) * k) + "," + Math.round((n & 255) * k) + ")";
+// "#rrggbb" の明るさを変える。k<1=かげ(すこし青く) / k>1=ハイライト(白へ近づける)。結果も "#rrggbb"
+function shade(hex, k) {
+  var n = parseInt(hex.slice(1), 16), c = [n >> 16 & 255, n >> 8 & 255, n & 255], i, v, s = "#";
+  for (i = 0; i < 3; i++) {
+    v = k > 1 ? lerp(c[i], 255, Math.min(1, k - 1)) : c[i] * Math.pow(k, i === 2 ? 0.85 : i === 1 ? 1.03 : 1);
+    v = Math.round(clamp(v, 0, 255));
+    s += (v < 16 ? "0" : "") + v.toString(16);
+  }
+  return s;
 }
 function mix3(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
 // 2関節IK。(px,py)から(tx,ty)へ、長さ l1,l2 は一定。ひじ/ひざは (prx,pry) 側へ曲げる。
@@ -840,14 +846,326 @@ function drawNumber(x, y, str, col, size) {
   ctx.fillText(str, x, y);
 }
 
+// ---------- バッター(セミリアル): 光は左上手前から。グラデーションの陰影と細い暗色のふちどり ----------
+var LIGHT = { x: -0.55, y: -0.83 };
+// 地面にやわらかく落ちる影
+function softShadow(cx, cy, rx, ry, a) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(1, ry / rx);
+  var gr = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  gr.addColorStop(0, "rgba(12,20,12," + a + ")"); gr.addColorStop(0.55, "rgba(12,20,12," + (a * 0.55) + ")"); gr.addColorStop(1, "rgba(12,20,12,0)");
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, rx, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// テーパー(先ほそ)の手足パーツ。r0/rm/r1=はじ・ふくらみ・おわりの半径、tm=ふくらみの位置(0..1)
+function seg(x0, y0, x1, y1, r0, rm, r1, tm, base, hi, lo) {
+  return { x0: x0, y0: y0, x1: x1, y1: y1, r0: r0, rm: rm, r1: r1, tm: tm, base: base, hi: hi, lo: lo };
+}
+function limbPath(s) {
+  var dx = s.x1 - s.x0, dy = s.y1 - s.y0, d = Math.sqrt(dx * dx + dy * dy) || 1;
+  var nx = -dy / d, ny = dx / d;
+  var mx = s.x0 + dx * s.tm, my = s.y0 + dy * s.tm;
+  var ax = s.x0 + nx * s.r0, ay = s.y0 + ny * s.r0, bx = s.x1 + nx * s.r1, by = s.y1 + ny * s.r1;
+  var a2x = s.x0 - nx * s.r0, a2y = s.y0 - ny * s.r0, b2x = s.x1 - nx * s.r1, b2y = s.y1 - ny * s.r1;
+  var a1 = Math.atan2(ny, nx);
+  ctx.beginPath(); ctx.moveTo(ax, ay);
+  ctx.quadraticCurveTo(2 * (mx + nx * s.rm) - (ax + bx) / 2, 2 * (my + ny * s.rm) - (ay + by) / 2, bx, by);
+  ctx.arc(s.x1, s.y1, s.r1, a1, a1 + Math.PI, true);
+  ctx.quadraticCurveTo(2 * (mx - nx * s.rm) - (a2x + b2x) / 2, 2 * (my - ny * s.rm) - (a2y + b2y) / 2, a2x, a2y);
+  ctx.arc(s.x0, s.y0, s.r0, a1 + Math.PI, a1, true);
+  ctx.closePath();
+}
+function limbGrad(s) {
+  var dx = s.x1 - s.x0, dy = s.y1 - s.y0, d = Math.sqrt(dx * dx + dy * dy) || 1;
+  var nx = -dy / d, ny = dx / d;
+  if (nx * LIGHT.x + ny * LIGHT.y < 0) { nx = -nx; ny = -ny; }     // 光が当たる側
+  var mx = (s.x0 + s.x1) / 2, my = (s.y0 + s.y1) / 2, r = s.rm + 0.5;
+  var gr = ctx.createLinearGradient(mx + nx * r, my + ny * r, mx - nx * r, my - ny * r);
+  gr.addColorStop(0, shade(s.base, s.hi)); gr.addColorStop(0.38, shade(s.base, 1)); gr.addColorStop(1, shade(s.base, s.lo));
+  return gr;
+}
+// パーツをまとめて描く: まず全部のふちどり(外側の輪郭だけ残る)、つぎに陰影つきの塗り
+function drawSegs(segs) {
+  var i, s;
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 1.7;
+  for (i = 0; i < segs.length; i++) {
+    s = segs[i]; limbPath(s);
+    ctx.fillStyle = ctx.strokeStyle = shade(s.base, 0.5); ctx.fill(); ctx.stroke();
+  }
+  for (i = 0; i < segs.length; i++) { s = segs[i]; limbPath(s); ctx.fillStyle = limbGrad(s); ctx.fill(); }
+}
+function pt(x0, y0, x1, y1, t) { return { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t }; }
+// 手足の途中に巻くライン(袖口・すそ・ストッキングの白線)。t=位置(0..1) r=手足の半径 wd=線の太さ
+function band(x0, y0, x1, y1, t, r, wd, col) {
+  var dx = x1 - x0, dy = y1 - y0, d = Math.sqrt(dx * dx + dy * dy) || 1, nx = -dy / d * r, ny = dx / d * r;
+  var cx = x0 + dx * t, cy = y0 + dy * t;
+  ctx.lineCap = "butt"; ctx.lineWidth = wd; ctx.strokeStyle = col;
+  ctx.beginPath(); ctx.moveTo(cx - nx, cy - ny); ctx.lineTo(cx + nx, cy + ny); ctx.stroke();
+  ctx.lineCap = "round";
+}
+// 足首の位置: かかと(つま先)を軸にくつを回したあとの位置。f=地面の足場、px=回転軸のx
+function footAnkle(f, tilt, px) {
+  var dx = f.x - px, dy = -8, c = Math.cos(tilt), s = Math.sin(tilt);
+  return { x: px + dx * c - dy * s, y: f.y + 2 + dx * s + dy * c };
+}
+// スパイク(右向き): 足元 (f.x, f.y) が地面から2px上。底のスタッドが土に触れる
+function drawCleat(f, tilt, px, col, trim) {
+  ctx.save();
+  ctx.translate(px, f.y + 2); ctx.rotate(tilt); ctx.translate(-px, -(f.y + 2));
+  ctx.translate(f.x, f.y);
+  // 底のスタッド
+  ctx.fillStyle = "#15151a";
+  ctx.fillRect(-6.5, 1.2, 2, 2.2); ctx.fillRect(-1.5, 1.2, 2, 2.2); ctx.fillRect(3.5, 1.2, 2, 2.2); ctx.fillRect(9, 1.2, 2, 2.2);
+  ctx.beginPath();
+  ctx.moveTo(-8.6, -2.6); ctx.lineTo(-8.2, -9.4);
+  ctx.quadraticCurveTo(-3.5, -10.6, 1.2, -9.2);
+  ctx.quadraticCurveTo(4.6, -6.6, 9, -5.6);
+  ctx.quadraticCurveTo(13.4, -4.8, 13.4, -0.6);
+  ctx.lineTo(13.4, 1.6); ctx.lineTo(-8.6, 1.6);
+  ctx.quadraticCurveTo(-9.6, -0.6, -8.6, -2.6);
+  ctx.closePath();
+  var gr = ctx.createLinearGradient(-6, -10, 6, 2);
+  gr.addColorStop(0, shade(col, 1.9)); gr.addColorStop(0.35, shade(col, 1.15)); gr.addColorStop(1, shade(col, 0.55));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.lineWidth = 0.9; ctx.strokeStyle = shade(col, 0.4); ctx.lineJoin = "round"; ctx.stroke();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = "#e9e9ee"; ctx.fillRect(-10, 0, 26, 1.7);                       // ソール(白)
+  ctx.strokeStyle = trim; ctx.lineWidth = 1.5;                                    // サイドのライン
+  ctx.beginPath(); ctx.moveTo(-7, -3.2); ctx.quadraticCurveTo(0, -4.6, 8, -2); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.45)"; ctx.beginPath(); ctx.ellipse(10, -3.2, 2.6, 1.1, -0.2, 0, Math.PI * 2); ctx.fill();   // つま先のつや
+  ctx.restore();
+  ctx.strokeStyle = "rgba(235,235,240,0.7)"; ctx.lineWidth = 0.7;                 // ひも
+  for (var i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(1.2 + i * 2.4, -8.4 + i * 1.1); ctx.lineTo(3.4 + i * 2.4, -7.2 + i * 1.1); ctx.stroke(); }
+  ctx.restore();
+}
+// バッティンググローブ: バットの向き th にそって、バットをにぎる形
+function drawGlove(x, y, th, trim) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(th);
+  var gr = ctx.createLinearGradient(0, -4, 0, 4);
+  var lit = (-Math.sin(th) * LIGHT.x + Math.cos(th) * LIGHT.y) > 0;
+  gr.addColorStop(0, lit ? "#5a5c6a" : "#25262e"); gr.addColorStop(1, lit ? "#25262e" : "#5a5c6a");
+  ctx.beginPath(); ctx.moveTo(-4, -3.2); ctx.lineTo(3.4, -3.6); ctx.quadraticCurveTo(6, -3.4, 6, 0);
+  ctx.quadraticCurveTo(6, 3.4, 3.4, 3.6); ctx.lineTo(-4, 3.2); ctx.closePath();
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.lineWidth = 0.8; ctx.strokeStyle = "#101016"; ctx.lineJoin = "round"; ctx.stroke();
+  ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 0.7;                       // ゆびのすきま
+  for (var i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-0.4 + i * 2.1, -3.3); ctx.lineTo(-0.4 + i * 2.1, 3.3); ctx.stroke(); }
+  ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.beginPath(); ctx.ellipse(1.2, lit ? -2 : 2, 3.4, 0.9, 0, 0, Math.PI * 2); ctx.fill();   // つや
+  ctx.beginPath(); ctx.ellipse(-1.4, -3, 2.6, 1.5, 0.3, 0, Math.PI * 2); ctx.fillStyle = "#3a3c48"; ctx.fill(); ctx.stroke();            // おやゆび
+  ctx.fillStyle = trim; ctx.fillRect(-5.8, -3.4, 2.2, 6.8);                        // リストストラップ
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(-4.5, -3.4, 0.9, 6.8);
+  ctx.restore();
+}
+// うで: 肩のふくらみ + 袖(トリムのライン) + 肌のひじ・前腕(筋肉のふくらみ)
+function drawArm(x0, y0, a, jersey, trim, skin) {
+  var ex = a.ex, ey = a.ey, tx = a.tx, ty = a.ty, p2 = pt(x0, y0, ex, ey, 0.7);
+  drawSegs([
+    seg(ex, ey, tx, ty, 4.6, 5.1, 3.0, 0.3, skin, 1.1, 0.64),
+    seg(x0, y0, ex, ey, 5.2, 5.4, 4.2, 0.35, skin, 1.08, 0.68),
+    seg(x0, y0, p2.x, p2.y, 6.6, 6.8, 5.6, 0.3, jersey, 1.12, 0.62)
+  ]);
+  band(x0, y0, ex, ey, 0.66, 5.6, 1.8, trim);
+  band(x0, y0, ex, ey, 0.61, 5.8, 0.8, shade(trim, 0.6));
+  // 袖のしわ(肩とひじ側) と 前腕のハイライト
+  var ux = ex - x0, uy = ey - y0, ul = Math.sqrt(ux * ux + uy * uy) || 1, nx = -uy / ul, ny = ux / ul;
+  var fx = tx - ex, fy = ty - ey, fl2 = Math.sqrt(fx * fx + fy * fy) || 1, fnx = -fy / fl2, fny = fx / fl2;
+  if (nx * LIGHT.x + ny * LIGHT.y < 0) { nx = -nx; ny = -ny; }
+  if (fnx * LIGHT.x + fny * LIGHT.y < 0) { fnx = -fnx; fny = -fny; }
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(0,0,0,0.16)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0 - nx * 3 + ux * 0.12, y0 - ny * 3 + uy * 0.12); ctx.lineTo(x0 - nx * 3.6 + ux * 0.4, y0 - ny * 3.6 + uy * 0.4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0 + nx * 1 + ux * 0.2, y0 + ny * 1 + uy * 0.2); ctx.lineTo(x0 - nx * 2 + ux * 0.46, y0 - ny * 2 + uy * 0.46); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.beginPath(); ctx.moveTo(x0 + nx * 3.4 + ux * 0.1, y0 + ny * 3.4 + uy * 0.1); ctx.lineTo(x0 + nx * 3.4 + ux * 0.45, y0 + ny * 3.4 + uy * 0.45); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.24)"; ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(ex + fx * 0.18 + fnx * 2, ey + fy * 0.18 + fny * 2); ctx.lineTo(ex + fx * 0.6 + fnx * 1.6, ey + fy * 0.6 + fny * 1.6); ctx.stroke();
+  ctx.strokeStyle = "rgba(90,30,20,0.28)"; ctx.lineWidth = 1;                       // ひじのしわ
+  ctx.beginPath(); ctx.moveTo(ex - nx * 3.6, ey - ny * 3.6); ctx.quadraticCurveTo(ex - nx * 1.8 - ux * 0.06, ey - ny * 1.8 - uy * 0.06, ex + nx * 0.8, ey + ny * 0.8); ctx.stroke();
+  // 肩のつや
+  var rg = ctx.createRadialGradient(x0 + nx * 3, y0 + ny * 3, 0, x0 + nx * 3, y0 + ny * 3, 5);
+  rg.addColorStop(0, "rgba(255,255,255,0.22)"); rg.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(x0 + nx * 3, y0 + ny * 3, 5, 0, Math.PI * 2); ctx.fill();
+}
+// バット(木): グリップから先まで。緑のスイートスポットの位置は判定と同じ(BL * (GREEN_C ± gh))
+function drawBatShape(gx, gy, th, BL, gh) {
+  ctx.save();
+  ctx.translate(gx, gy); ctx.rotate(th);
+  ctx.beginPath();
+  ctx.moveTo(-5, -1.9); ctx.lineTo(BL * 0.22, -2.2);
+  ctx.bezierCurveTo(BL * 0.4, -2.3, BL * 0.46, -4.4, BL * 0.58, -4.4);
+  ctx.lineTo(BL * 0.97, -4.4); ctx.quadraticCurveTo(BL + 2, -4.4, BL + 2, 0); ctx.quadraticCurveTo(BL + 2, 4.4, BL * 0.97, 4.4);
+  ctx.lineTo(BL * 0.58, 4.4); ctx.bezierCurveTo(BL * 0.46, 4.4, BL * 0.4, 2.3, BL * 0.22, 2.2);
+  ctx.lineTo(-5, 1.9); ctx.closePath();
+  ctx.fillStyle = "#c98b4d"; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = "#4a3a3a"; ctx.fillRect(-6, -3, BL * 0.2 + 6, 6);              // グリップテープ
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  for (var i = 0; i < 4; i++) ctx.fillRect(-4 + i * 5, -3, 1, 6);
+  ctx.fillStyle = "#3ddc60"; ctx.fillRect(BL * (GREEN_C - gh), -6, BL * gh * 2, 12);       // スイートスポット
+  var lit = (-Math.sin(th) * LIGHT.x + Math.cos(th) * LIGHT.y) > 0 ? 1 : -1;
+  var gr = ctx.createLinearGradient(0, lit * 4.6, 0, -lit * 4.6);
+  gr.addColorStop(0, "rgba(255,255,255,0.35)"); gr.addColorStop(0.35, "rgba(255,255,255,0)"); gr.addColorStop(1, "rgba(30,10,0,0.42)");
+  ctx.fillStyle = gr; ctx.fillRect(-6, -6, BL + 10, 12);
+  ctx.restore();
+  ctx.lineWidth = 0.9; ctx.strokeStyle = "#5a3a1c"; ctx.lineJoin = "round"; ctx.stroke();
+  // ノブ
+  ctx.beginPath(); ctx.ellipse(-6.2, 0, 2.6, 3.1, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#6a4a40"; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.beginPath(); ctx.ellipse(-6.8, -lit * 1, 1, 1.3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// 頭: 首の上。ヘルメット(つや・耳あて・つば)、顔(まぶた・目・まゆ・鼻・口・耳)、つばの影
+function drawBatterHead(hdx, hdy, tilt, LK) {
+  var skin = LK.skin, hair = LK.hair, hel = LK.cap, trim = LK.trim, gr;
+  var skinLo = shade(skin, 0.7), edge = shade(skin, 0.5), hairEdge = shade(hair, 0.5);
+  ctx.save();
+  ctx.translate(hdx, hdy); ctx.rotate(tilt); ctx.scale(0.92, 0.92);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  function facePath() {
+    ctx.beginPath(); ctx.moveTo(-8.4, -5);
+    ctx.bezierCurveTo(-9.6, -12.5, 3, -13.8, 7.6, -8);
+    ctx.quadraticCurveTo(8.7, -5.6, 8.6, -3.6);
+    ctx.lineTo(9.2, -1);
+    ctx.quadraticCurveTo(11.9, 3, 10.6, 4);
+    ctx.quadraticCurveTo(9.6, 4.6, 8.9, 4.4);
+    ctx.lineTo(8.8, 6);
+    ctx.quadraticCurveTo(9.5, 7, 8.6, 7.9);
+    ctx.quadraticCurveTo(9.3, 9.2, 7.8, 10.5);
+    ctx.quadraticCurveTo(5.5, 12.4, 1.5, 11.3);
+    ctx.quadraticCurveTo(-4, 10.5, -7, 5);
+    ctx.quadraticCurveTo(-9.2, 1, -8.4, -5);
+    ctx.closePath();
+  }
+  // ポニーテール(ヘルメットのうしろから)
+  if (LK.tail) {
+    var sw = Math.sin(time * 2.2) * 0.8;
+    ctx.beginPath(); ctx.moveTo(-9.5, -3.5);
+    ctx.bezierCurveTo(-17, -2 + sw, -19.5, 8, -15 + sw, 17);
+    ctx.bezierCurveTo(-14, 10, -12.5, 4, -8, 2.4); ctx.closePath();
+    gr = ctx.createLinearGradient(-19, -4, -9, 8);
+    gr.addColorStop(0, shade(hair, 1.45)); gr.addColorStop(0.5, hair); gr.addColorStop(1, shade(hair, 0.55));
+    ctx.fillStyle = gr; ctx.fill(); ctx.lineWidth = 0.8; ctx.strokeStyle = hairEdge; ctx.stroke();
+    circle(-10.6, -2.4, 1.7, trim);
+  }
+  // 顔(肌)
+  facePath();
+  gr = ctx.createRadialGradient(-1, -4, 1, 1, 1, 16);
+  gr.addColorStop(0, shade(skin, 1.12)); gr.addColorStop(0.55, skin); gr.addColorStop(1, shade(skin, 0.78));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.save(); facePath(); ctx.clip();
+  // あごの下とほおのかげ / ほんのり赤み
+  gr = ctx.createLinearGradient(0, 3, 0, 12);
+  gr.addColorStop(0, "rgba(90,40,30,0)"); gr.addColorStop(1, "rgba(90,40,30,0.3)");
+  ctx.fillStyle = gr; ctx.fillRect(-10, 3, 24, 10);
+  gr = ctx.createRadialGradient(4.5, 4.2, 0, 4.5, 4.2, 5.5);
+  gr.addColorStop(0, "rgba(225,95,95,0.26)"); gr.addColorStop(1, "rgba(225,95,95,0)");
+  ctx.fillStyle = gr; ctx.fillRect(-1, -1, 12, 11);
+  // ヘルメットのつばの影(おでこ〜目のうえ)
+  gr = ctx.createLinearGradient(0, -5, 0, 2.2);
+  gr.addColorStop(0, "rgba(30,15,15,0.46)"); gr.addColorStop(1, "rgba(30,15,15,0)");
+  ctx.fillStyle = gr; ctx.fillRect(-10, -5, 24, 7.5);
+  ctx.restore();
+  facePath(); ctx.lineWidth = 0.8; ctx.strokeStyle = edge; ctx.stroke();    // あごのふちどり
+  // 後ろ髪・もみあげ
+  ctx.beginPath(); ctx.moveTo(-8.9, -6);
+  ctx.bezierCurveTo(-11, -1, -10, 5.5, -6.6, 8);
+  ctx.quadraticCurveTo(-4.6, 6.2, -3.8, 3);
+  ctx.lineTo(-3.8, -4.5); ctx.closePath();
+  gr = ctx.createLinearGradient(-10, -6, -4, 8);
+  gr.addColorStop(0, shade(hair, 1.35)); gr.addColorStop(1, shade(hair, 0.65));
+  ctx.fillStyle = gr; ctx.fill(); ctx.lineWidth = 0.7; ctx.strokeStyle = hairEdge; ctx.stroke();
+  // 耳
+  ctx.beginPath(); ctx.ellipse(-1.2, 2.6, 2.6, 3.5, 0.1, 0, Math.PI * 2);
+  ctx.fillStyle = shade(skin, 0.92); ctx.fill(); ctx.lineWidth = 0.7; ctx.strokeStyle = edge; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-0.8, 2.9, 1.2, 2, 0.1, 0, Math.PI * 2); ctx.fillStyle = skinLo; ctx.fill();
+  // 鼻のかげ・小鼻
+  ctx.strokeStyle = shade(skin, 0.62); ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(9, -1); ctx.quadraticCurveTo(8.2, 1.8, 9.2, 3.8); ctx.stroke();
+  circle(9.7, 3.8, 0.55, shade(skin, 0.4));
+  ctx.fillStyle = "rgba(255,255,255,0.28)"; ctx.beginPath(); ctx.ellipse(10.4, 1.4, 0.6, 1.2, 0.2, 0, Math.PI * 2); ctx.fill();
+  // 目: 白目・黒目・まぶた・まつげのライン
+  ctx.beginPath(); ctx.ellipse(5.3, -0.4, 2.4, 1.55, 0.05, 0, Math.PI * 2);
+  ctx.fillStyle = "#f4f0ea"; ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.ellipse(5.3, -0.4, 2.4, 1.55, 0.05, 0, Math.PI * 2); ctx.clip();
+  circle(6.1, -0.3, 1.35, "#4a3424"); circle(6.2, -0.3, 0.7, "#0e0a0a");
+  circle(5.7, -0.8, 0.38, "#fff");
+  gr = ctx.createLinearGradient(0, -2, 0, 0.4);                      // まぶたの影
+  gr.addColorStop(0, "rgba(40,20,20,0.5)"); gr.addColorStop(1, "rgba(40,20,20,0)");
+  ctx.fillStyle = gr; ctx.fillRect(2, -2, 8, 3);
+  ctx.restore();
+  ctx.strokeStyle = shade(skin, 0.3); ctx.lineWidth = 0.9;           // 上まぶた
+  ctx.beginPath(); ctx.ellipse(5.3, -0.4, 2.5, 1.65, 0.05, Math.PI * 1.05, Math.PI * 1.98); ctx.stroke();
+  ctx.strokeStyle = shade(skin, 0.74); ctx.lineWidth = 0.55;         // 二重のライン・下まぶた
+  ctx.beginPath(); ctx.moveTo(2.8, -2.4); ctx.quadraticCurveTo(5.3, -3.2, 7.8, -2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(5.3, -0.3, 2.4, 1.6, 0.05, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+  if (LK.eyeblack) { ctx.fillStyle = "rgba(15,15,25,0.78)"; roundRect(2.8, 1.5, 5.4, 1.5, 0.7); ctx.fill(); }
+  // まゆ
+  ctx.beginPath(); ctx.moveTo(2.4, -3.2); ctx.quadraticCurveTo(5.4, -4.8, 8.4, -3.8); ctx.quadraticCurveTo(5.6, -4, 2.4, -2.5); ctx.closePath();
+  ctx.fillStyle = shade(hair, 0.85); ctx.fill();
+  // 口: 上くちびるのライン・下くちびる
+  ctx.strokeStyle = "#8a4a40"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(5.8, 7); ctx.quadraticCurveTo(7.6, 7.5, 8.9, 6.6); ctx.stroke();
+  ctx.fillStyle = "rgba(200,95,95,0.4)"; ctx.beginPath(); ctx.ellipse(7.7, 8.2, 1.6, 0.8, -0.1, 0, Math.PI * 2); ctx.fill();
+  // めがね
+  if (LK.glasses) {
+    ctx.strokeStyle = "#23232c"; ctx.lineWidth = 0.9;
+    roundRect(2, -3.4, 7, 5.6, 2.3); ctx.stroke();
+    ctx.fillStyle = "rgba(190,225,255,0.18)"; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, -1.2); ctx.lineTo(-4.5, -1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9, -1.2); ctx.lineTo(10, -1.4); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(3.4, -2.2); ctx.lineTo(4.8, -2.4); ctx.stroke();
+  }
+  // ---- ヘルメット ----
+  function domePath() {
+    ctx.beginPath(); ctx.moveTo(-11.4, 3.2);
+    ctx.bezierCurveTo(-14, -9, -3, -16.8, 6.4, -11.4);
+    ctx.quadraticCurveTo(10.8, -8.8, 11, -4.4);
+    ctx.lineTo(3, -3.7); ctx.quadraticCurveTo(-4, -3, -7, -2.6);
+    ctx.quadraticCurveTo(-10.2, -2, -11.4, 3.2); ctx.closePath();
+  }
+  domePath();
+  gr = ctx.createLinearGradient(-9, -15, 9, -1);
+  gr.addColorStop(0, shade(hel, 1.5)); gr.addColorStop(0.3, shade(hel, 1.1)); gr.addColorStop(0.7, shade(hel, 0.75)); gr.addColorStop(1, shade(hel, 0.5));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.save(); domePath(); ctx.clip();
+  ctx.strokeStyle = trim; ctx.lineWidth = 1.7;                        // 飾りライン
+  ctx.beginPath(); ctx.moveTo(-9.5, -6); ctx.quadraticCurveTo(0, -12.2, 9.8, -7.2); ctx.stroke();
+  ctx.strokeStyle = "rgba(0,0,0,0.18)"; ctx.lineWidth = 0.7;          // 中央の成形ライン
+  ctx.beginPath(); ctx.moveTo(-10.5, -4); ctx.quadraticCurveTo(0, -15, 9, -7.5); ctx.stroke();
+  gr = ctx.createRadialGradient(-4.5, -11.2, 0, -4.5, -11.2, 7);      // つや
+  gr.addColorStop(0, "rgba(255,255,255,0.8)"); gr.addColorStop(0.4, "rgba(255,255,255,0.28)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gr; ctx.save(); ctx.translate(-4.5, -11.2); ctx.rotate(-0.35); ctx.scale(1.6, 0.6); ctx.translate(4.5, 11.2); ctx.fillRect(-14, -18, 20, 12); ctx.restore();
+  ctx.restore();
+  domePath(); ctx.lineWidth = 0.9; ctx.strokeStyle = shade(hel, 0.38); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.ellipse(-4.8, -10.6, 1.6, 0.6, -0.4, 0, Math.PI * 2); ctx.fill();
+  // 耳あて
+  ctx.beginPath(); ctx.moveTo(-7.4, -3.4); ctx.lineTo(0.8, -3.4); ctx.quadraticCurveTo(1.4, 2, -0.6, 4.6);
+  ctx.quadraticCurveTo(-4, 5.4, -7.6, 3.4); ctx.closePath();
+  gr = ctx.createLinearGradient(-7, -3, 1, 5);
+  gr.addColorStop(0, shade(hel, 1.25)); gr.addColorStop(1, shade(hel, 0.55));
+  ctx.fillStyle = gr; ctx.fill(); ctx.lineWidth = 0.8; ctx.strokeStyle = shade(hel, 0.38); ctx.stroke();
+  circle(-3, 0.4, 1.3, shade(hel, 0.45)); circle(-3.3, 0.1, 0.5, "rgba(255,255,255,0.45)");
+  // つば
+  ctx.beginPath(); ctx.moveTo(4.6, -6.6); ctx.lineTo(12.6, -6); ctx.quadraticCurveTo(18, -5.2, 17.4, -3.2);
+  ctx.quadraticCurveTo(17, -2.4, 15, -2.4); ctx.lineTo(4.6, -3.2); ctx.closePath();
+  gr = ctx.createLinearGradient(0, -6.6, 0, -2.4);
+  gr.addColorStop(0, shade(hel, 1.3)); gr.addColorStop(1, shade(hel, 0.5));
+  ctx.fillStyle = gr; ctx.fill(); ctx.lineWidth = 0.8; ctx.strokeStyle = shade(hel, 0.36); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.ellipse(12.2, -5.5, 3.6, 0.5, 0.05, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
 // バッターの体は左の定位置に固定。バットの位置(ax, ay)に合わせて、体の傾きとバットの角度を変える
 // (うでは伸ばさず、重心の移動・前傾・腰と肩の回転・バットの角度で高さや前後を表す)。
 // swingT: null=構え / 数値=スイング中。CONTACT_SW でバットが(ax, ay)を通る。
+// 動きの順番: 腰 -> 胴 -> 肩 -> うで -> バット(あとのパーツほど少し遅れて動く)。
+// 見る向き: うしろ斜めから。ピッチャー(右)のほうへ顔を向け、せなかに背番号。
 function drawBatter(ax, ay, swingT) {
   var D = Math.PI / 180;
   var LK = lookFor().b;
-  var skin = LK.skin, skinD = shade(LK.skin, 0.88), jersey = LK.jersey, trim = LK.trim, helmet = LK.cap;
-  var pantsC = LK.pants, glove = "#34343f";
+  var skin = LK.skin, jersey = LK.jersey, trim = LK.trim;
+  var pantsC = LK.pants, shoeC = "#2a2b33";
   // --- スイングの進み具合 w: 0=構え 1=ミートの瞬間 2=振り抜き ---
   var w = 0;
   if (swingT !== null) {
@@ -861,12 +1179,14 @@ function drawBatter(ax, ay, swingT) {
   // --- 足は地面に固定(足は広げ、ひざを曲げる)。前足だけ踏み出して着地 ---
   // --- 体の位置・傾きは、バットの位置(ax, ay)でほんの少しだけ変える(うでは固定) ---
   var baseX = 322 + (ax - 395) * 0.5;                 // 体全体の重心の移動(足も一緒に動く)
-  var fl = { x: baseX - 24, y: 412 - 5 * w2 }, fr = { x: baseX + 24 + 16 * w1, y: 412 - 12 * Math.sin(Math.PI * w1) };
+  var fl = { x: baseX - 24, y: 412 - 3 * w2 }, fr = { x: baseX + 24 + 16 * w1, y: 412 - 12 * Math.sin(Math.PI * w1) };
+  var tiltB = -0.55 * ss(0.3, 1.3, w);                // うしろ足: つま先を軸にかかとが上がる
+  var tiltF = 0.28 * Math.sin(Math.PI * w1);          // 前足: 浮いているあいだはつま先が下がる
   var hh = 9 * Math.cos(rh) + 2;
   var phi0 = 0.12 + 0.05 * (ax - 395) / 45 + 0.04 * (ay - 360) / 50;   // 上半身の傾き(数度だけ)
-  // 体の姿勢: wv=0..1 のときの腰・肩の中心(手の位置の基準)
+  // 体の姿勢: wv=0..1 のときの腰・肩の中心(手の位置の基準)。構えでは体重がうしろ足にのる
   function torsoAt(wv) {
-    var hxx = baseX + 8 * wv, ph = phi0 + 0.08 * wv;
+    var hxx = baseX - 3 * (1 - wv) + 11 * wv, ph = phi0 + 0.08 * wv;
     return { hx: hxx, phi: ph, sx: hxx + TORSO_L * Math.sin(ph), sy: HIP_Y - TORSO_L * Math.cos(ph) };
   }
   var T = torsoAt(w1);
@@ -884,97 +1204,155 @@ function drawBatter(ax, ay, swingT) {
   var th0 = -112 * D + Math.sin(time * 4) * 0.03;
   var thf = thc + 100 * D;                            // 振り抜き: バットは背中側へ
   var gx = sx + GRIP_DX - 6 * w2, gy = sy + GRIP_DY - 8 * w2 + (swingT === null ? Math.sin(time * 4) * 0.8 : 0);
-  var th = w <= 1 ? lerp(th0, thc, w) : lerp(thc, thf, w2);
+  var wb = w <= 1 ? Math.pow(w, 1.25) : w;            // バットは肩よりすこし遅れてついてくる(w=1でぴったり(ax,ay))
+  var th = w <= 1 ? lerp(th0, thc, wb) : lerp(thc, thf, w2);
   var dxb = Math.cos(th), dyb = Math.sin(th);
+  var gh = greenHalfU(save.levels.meet);              // スイートスポット(緑): ミートで広がる
 
-  function drawBatShape() {
-    ctx.save();
-    ctx.translate(gx, gy); ctx.rotate(th);
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(BL * 0.3, 0); ctx.stroke();
-    ctx.strokeStyle = "#c98b4d"; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(BL * 0.3, 0); ctx.lineTo(BL, 0); ctx.stroke();
-    var gh = greenHalfU(save.levels.meet);       // スイートスポット(緑): ミートで広がる
-    ctx.strokeStyle = "#3ddc60"; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(BL * (GREEN_C - gh), 0); ctx.lineTo(BL * (GREEN_C + gh), 0); ctx.stroke();
-    ctx.restore();
-  }
-
+  var i, gr;
   ctx.save();
-  // 影
-  ctx.fillStyle = "rgba(0,0,0,0.15)";
-  ctx.beginPath(); ctx.ellipse(baseX + 5, 414, 44, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // 地面の影(足もとはくっきり・全体はやわらかく)
+  softShadow(baseX + 4, 414, 52, 8, 0.2);
+  softShadow(fl.x + 2, 414, 15, 3.4, 0.5);
+  softShadow(fr.x + 2, 414, 15 + 4 * w1, 3.4, 0.5 - 0.3 * Math.sin(Math.PI * w1));
   // 振り抜きでは、バットは背中側に回る(体のうしろに描く)
-  if (w2 > 0.45) drawBatShape();
-  // 足(うしろ足 / 前足)
-  var lk = ik(hlx, HIP_Y, fl.x, fl.y - 6, LEG_L, LEG_L, 1, 0.1);
-  var rk = ik(hrx, HIP_Y, fr.x, fr.y - 6, LEG_L, LEG_L, 1, 0.1);
-  drawLeg(hlx, HIP_Y, lk.ex, lk.ey, lk.tx, lk.ty, 15, pantsC, trim);
-  drawLeg(hrx, HIP_Y, rk.ex, rk.ey, rk.tx, rk.ty, 15, pantsC, trim);
-  drawShoe(fl.x, fl.y, 1, "#26262e"); drawShoe(fr.x, fr.y, 1, "#26262e");
-  // パンツ + ベルト
-  ctx.fillStyle = pantsC;
-  roundRect(hlx - 7, HIP_Y - 6, hrx - hlx + 14, 16, 6); ctx.fill();
-  // ジャージの胴体: 肩の線と腰の線をつないだ形(ひねると幅が変わる)
-  ctx.fillStyle = jersey; ctx.strokeStyle = jersey; ctx.lineWidth = 9; ctx.lineJoin = "round";
-  ctx.beginPath(); ctx.moveTo(slx, sy + 1); ctx.lineTo(srx, sy + 1); ctx.lineTo(hrx, HIP_Y - 6); ctx.lineTo(hlx, HIP_Y - 6); ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = trim; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(srx + 4, sy + 6); ctx.lineTo(hrx + 4, HIP_Y - 8); ctx.stroke();
-  ctx.strokeStyle = "#2a2a33"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(hlx - 5, HIP_Y - 4); ctx.lineTo(hrx + 5, HIP_Y - 4); ctx.stroke();
-  ctx.fillStyle = "#d8c36a"; ctx.fillRect(hx - 2, HIP_Y - 6, 4, 4);
-  drawNumber((slx + srx) / 2, (sy + HIP_Y) / 2 - 3, LK.num, trim, LK.num.length > 1 ? 11 : 13);
-  // 首 + 頭 + バッティングヘルメット(ピッチャー側を向く)
+  if (w2 > 0.45) drawBatShape(gx, gy, th, BL, gh);
+  // 足(うしろ足 / 前足): ふともも・すね(パンツ)・すそ・ストッキング + 骨盤
+  var fa = footAnkle(fl, tiltB, fl.x + 11), fb = footAnkle(fr, tiltF, fr.x - 8);
+  var lk = ik(hlx, HIP_Y, fa.x, fa.y, LEG_L, LEG_L, 1, 0.1);
+  var rk = ik(hrx, HIP_Y, fb.x, fb.y, LEG_L, LEG_L, 1, 0.1);
+  var legs = [seg(hlx, HIP_Y - 1, hrx, HIP_Y - 1, 8.5, 8.5, 8.5, 0.5, pantsC, 1.1, 0.74)];
+  var sides = [[lk, hlx], [rk, hrx]], hemC = shade(pantsC, 0.78), stripeC = "#f2f2f4";
+  for (i = 0; i < 2; i++) {
+    var K = sides[i][0], hxL = sides[i][1];
+    var pm = pt(K.ex, K.ey, K.tx, K.ty, 0.3);
+    legs.push(seg(hxL, HIP_Y, K.ex, K.ey, 8.8, 9.8, 6.6, 0.38, pantsC, 1.12, 0.66));
+    legs.push(seg(K.ex, K.ey, pm.x, pm.y, 6.8, 7, 6.5, 0.5, pantsC, 1.1, 0.68));
+    legs.push(seg(pm.x, pm.y, K.tx, K.ty, 5.2, 5.8, 3.4, 0.3, trim, 1.2, 0.6));            // ストッキング(ふくらはぎのふくらみ)
+  }
+  drawSegs(legs);
+  for (i = 0; i < 2; i++) {
+    var KB = sides[i][0];
+    band(KB.ex, KB.ey, KB.tx, KB.ty, 0.3, 6.6, 2.2, hemC);                                  // パンツのすそ
+    band(KB.ex, KB.ey, KB.tx, KB.ty, 0.42, 5.8, 1.6, stripeC);                              // ストッキングの白いライン
+    band(KB.ex, KB.ey, KB.tx, KB.ty, 0.5, 5.6, 1.6, stripeC);
+  }
+  // パンツのサイドライン・ひざのしわ・ふとももの陰影
+  ctx.lineCap = "round";
+  for (i = 0; i < 2; i++) {
+    var KK = sides[i][0], hx0 = sides[i][1], sgn = i === 0 ? -1 : 1;
+    var tdx = KK.ex - hx0, tdy = KK.ey - HIP_Y, tl = Math.sqrt(tdx * tdx + tdy * tdy) || 1, tnx = -tdy / tl, tny = tdx / tl;
+    if (tnx * sgn < 0) { tnx = -tnx; tny = -tny; }      // 外側
+    ctx.strokeStyle = trim; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(hx0 + tnx * 7.4, HIP_Y + tny * 7.4); ctx.lineTo(KK.ex + tnx * 5.6 + tdx * 0.02, KK.ey + tny * 5.6); ctx.stroke();
+    ctx.strokeStyle = "rgba(0,0,0,0.17)"; ctx.lineWidth = 1;                          // ひざのしわ
+    for (var q = 0; q < 3; q++) {
+      var kx0 = KK.ex + 4 - q * 1.2, ky0 = KK.ey - 4 + q * 3.4;
+      ctx.beginPath(); ctx.moveTo(kx0, ky0); ctx.quadraticCurveTo(kx0 - 3, ky0 + 1.4, kx0 - 5.4, ky0 + 0.6); ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1.3;                 // ふとももの光
+    ctx.beginPath(); ctx.moveTo(hx0 - tnx * 2 + tdx * 0.2, HIP_Y - tny * 2 + tdy * 0.2); ctx.lineTo(hx0 - tnx * 2 + tdx * 0.62, HIP_Y - tny * 2 + tdy * 0.62); ctx.stroke();
+  }
+  drawCleat(fl, tiltB, fl.x + 11, shoeC, trim); drawCleat(fr, tiltF, fr.x - 8, shoeC, trim);
+  // ジャージの胴体: 肩の線と腰の線をつないだ形(ひねると幅が変わる。肩はなで肩、腰はしぼる)
+  function torsoPath() {
+    ctx.beginPath(); ctx.moveTo(sx - 5.6, sy - 3.6);
+    ctx.quadraticCurveTo(slx + 3, sy - 2.6, slx - 3.5, sy + 3);
+    ctx.bezierCurveTo(slx - 5, sy + 14, hlx - 6, HIP_Y - 26, hlx - 3.6, HIP_Y - 4);
+    ctx.lineTo(hrx + 3.6, HIP_Y - 4);
+    ctx.bezierCurveTo(hrx + 6, HIP_Y - 26, srx + 5, sy + 14, srx + 3.5, sy + 3);
+    ctx.quadraticCurveTo(srx - 3, sy - 2.6, sx + 5.6, sy - 3.6);
+    ctx.closePath();
+  }
+  torsoPath();
+  gr = ctx.createLinearGradient(slx - 6, sy, srx + 6, sy + 10);
+  gr.addColorStop(0, shade(jersey, 1.18)); gr.addColorStop(0.3, shade(jersey, 1.04)); gr.addColorStop(0.7, shade(jersey, 0.84)); gr.addColorStop(1, shade(jersey, 0.62));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.save(); torsoPath(); ctx.clip();
+  var cxm = (slx + srx) / 2;
+  // わきの下のかげ・腰まわりのかげ
+  for (i = 0; i < 2; i++) {
+    var axx = i ? srx - 1 : slx + 1;
+    gr = ctx.createRadialGradient(axx, sy + 12, 0, axx, sy + 12, 10);
+    gr.addColorStop(0, "rgba(10,10,30,0.3)"); gr.addColorStop(1, "rgba(10,10,30,0)");
+    ctx.fillStyle = gr; ctx.fillRect(axx - 11, sy + 1, 22, 24);
+  }
+  gr = ctx.createLinearGradient(0, HIP_Y - 18, 0, HIP_Y - 3);
+  gr.addColorStop(0, "rgba(10,10,30,0)"); gr.addColorStop(1, "rgba(10,10,30,0.26)");
+  ctx.fillStyle = gr; ctx.fillRect(hlx - 12, HIP_Y - 18, hrx - hlx + 24, 16);
+  // 肩ヨークの縫い目・背中の縫い目・サイドのパイピング
+  ctx.lineCap = "round"; ctx.lineWidth = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath(); ctx.moveTo(slx + 1, sy + 7); ctx.quadraticCurveTo(cxm, sy + 11, srx - 1, sy + 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx, sy + 9); ctx.lineTo((hlx + hrx) / 2, HIP_Y - 7); ctx.stroke();
+  ctx.strokeStyle = trim; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(slx - 0.5, sy + 8); ctx.bezierCurveTo(slx - 1.5, sy + 16, hlx - 3, HIP_Y - 24, hlx - 1, HIP_Y - 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(srx + 0.5, sy + 8); ctx.bezierCurveTo(srx + 1.5, sy + 16, hrx + 3, HIP_Y - 24, hrx + 1, HIP_Y - 5); ctx.stroke();
+  // しわ: わきの下から斜めに・腰のたるみ(暗い線 + すぐ横に明るい線)
+  var wr = [[slx + 3, sy + 13, sx - 4, sy + 20, 1], [srx - 3, sy + 13, sx + 4, sy + 20, -1],
+            [slx + 5, sy + 17, sx - 6, sy + 26, 1], [srx - 5, sy + 17, sx + 6, sy + 26, -1],
+            [hlx - 1, HIP_Y - 14, hx - 3, HIP_Y - 10, 1], [hrx + 1, HIP_Y - 14, hx + 3, HIP_Y - 10, -1],
+            [hlx, HIP_Y - 19, hx - 5, HIP_Y - 15, 1], [hrx, HIP_Y - 19, hx + 5, HIP_Y - 15, -1]];
+  for (i = 0; i < wr.length; i++) {
+    var r0 = wr[i];
+    ctx.strokeStyle = "rgba(10,10,40,0.17)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(r0[0], r0[1]); ctx.quadraticCurveTo((r0[0] + r0[2]) / 2, (r0[1] + r0[3]) / 2 + 2, r0[2], r0[3]); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.13)";
+    ctx.beginPath(); ctx.moveTo(r0[0], r0[1] - 1.4); ctx.quadraticCurveTo((r0[0] + r0[2]) / 2, (r0[1] + r0[3]) / 2 + 0.6, r0[2], r0[3] - 1.4); ctx.stroke();
+  }
+  // 肩・背中のつや
+  gr = ctx.createRadialGradient(slx + 3, sy + 5, 0, slx + 3, sy + 5, 14);
+  gr.addColorStop(0, "rgba(255,255,255,0.22)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gr; ctx.fillRect(slx - 12, sy - 6, 30, 28);
+  // 背番号(ひねるとよこに細くなる)
+  ctx.save(); ctx.translate(cxm + 1, (sy + HIP_Y) / 2 - 4); ctx.scale(Math.max(0.5, hw / 19), 1);
+  ctx.font = "bold " + (LK.num.length > 1 ? 13 : 15) + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.lineJoin = "round"; ctx.lineWidth = 2.2; ctx.strokeStyle = "rgba(0,0,0,0.28)"; ctx.strokeText(LK.num, 0.6, 0.8);
+  ctx.fillStyle = trim; ctx.fillText(LK.num, 0, 0);
+  ctx.restore();
+  ctx.restore();
+  torsoPath(); ctx.lineWidth = 0.9; ctx.strokeStyle = shade(jersey, 0.42); ctx.lineJoin = "round"; ctx.stroke();
+  // ベルト(ループ + バックル)
+  var bl0 = hlx - 5.4, bl1 = hrx + 5.4;
+  ctx.strokeStyle = "#1c1c24"; ctx.lineWidth = 4; ctx.lineCap = "butt";
+  ctx.beginPath(); ctx.moveTo(bl0, HIP_Y - 4); ctx.lineTo(bl1, HIP_Y - 4); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(bl0, HIP_Y - 5.2); ctx.lineTo(bl1, HIP_Y - 5.2); ctx.stroke();
+  ctx.strokeStyle = shade(pantsC, 0.6); ctx.lineWidth = 1.2;
+  for (i = 0; i < 5; i++) { var lx = lerp(bl0 + 3, bl1 - 3, i / 4); ctx.beginPath(); ctx.moveTo(lx, HIP_Y - 6.4); ctx.lineTo(lx, HIP_Y - 1.4); ctx.stroke(); }
+  gr = ctx.createLinearGradient(bl1 - 8, HIP_Y - 7, bl1 - 2, HIP_Y - 1);
+  gr.addColorStop(0, "#f2dc8a"); gr.addColorStop(0.5, "#c9a64a"); gr.addColorStop(1, "#8a6a22");
+  ctx.fillStyle = gr; roundRect(bl1 - 8, HIP_Y - 7.2, 6.4, 6.4, 1.2); ctx.fill();
+  ctx.lineWidth = 0.7; ctx.strokeStyle = "#5a4010"; ctx.stroke();
+  ctx.fillStyle = "#1c1c24"; ctx.fillRect(bl1 - 6.5, HIP_Y - 5.6, 3.4, 3.2);
+  // 首(僧帽筋から) + 頭 + ヘルメット(ピッチャー側を向く)
   var hdx = sx + 20 * Math.sin(phi) + 3, hdy = sy - 20 * Math.cos(phi);
-  ctx.strokeStyle = skinD; ctx.lineWidth = 7; ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(sx, sy + 1); ctx.lineTo(hdx, hdy + 6); ctx.stroke();
-  // 髪(ヘルメットの下から見える後ろ髪 / ポニーテール)
-  if (LK.tail) {
-    ctx.strokeStyle = LK.hair; ctx.lineWidth = 5; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(hdx - 9, hdy); ctx.quadraticCurveTo(hdx - 19, hdy + 1, hdx - 18, hdy + 12); ctx.stroke();
-  }
-  circle(hdx - 8, hdy + 5, 4.5, LK.hair);
-  circle(hdx, hdy, 10.5, skin);
-  circle(hdx + 10, hdy + 2, 2.2, skin);                              // 鼻
-  circle(hdx + 5, hdy - 1, 1.5, "#2b2b33");                          // 目
-  circle(hdx + 5.5, hdy - 1.6, 0.6, "#fff");
-  circle(hdx + 3.5, hdy + 4, 2.6, "rgba(255,120,140,0.45)");         // ほっぺ
-  if (LK.eyeblack) { ctx.fillStyle = "rgba(20,20,30,0.7)"; ctx.fillRect(hdx + 2.5, hdy + 1.2, 5, 1.6); }
-  if (LK.glasses) {
-    ctx.strokeStyle = "#2b2b33"; ctx.lineWidth = 1.1;
-    ctx.beginPath(); ctx.arc(hdx + 5, hdy - 1, 3.6, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(hdx + 1.4, hdy - 1.4); ctx.lineTo(hdx - 6, hdy - 2); ctx.stroke();
-  }
-  ctx.strokeStyle = "#5a3a2a"; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(hdx + 3, hdy - 3.5); ctx.lineTo(hdx + 8, hdy - 3); ctx.stroke();   // まゆ
-  ctx.strokeStyle = "#a5533d";
-  ctx.beginPath(); ctx.moveTo(hdx + 5, hdy + 6); ctx.lineTo(hdx + 8.5, hdy + 5.5); ctx.stroke(); // くち
-  ctx.fillStyle = helmet;
-  ctx.beginPath(); ctx.arc(hdx - 0.5, hdy - 1.5, 11.5, Math.PI, 0); ctx.lineTo(hdx + 11, hdy - 1.5); ctx.lineTo(hdx - 12, hdy - 1.5); ctx.closePath(); ctx.fill();
-  roundRect(hdx + 5, hdy - 4.5, 11, 3.2, 1.5); ctx.fill();            // つば
-  ctx.beginPath(); ctx.ellipse(hdx - 2, hdy + 2.5, 5.5, 7, 0, 0, Math.PI * 2); ctx.fill();   // 耳あて
-  ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.arc(hdx - 0.5, hdy - 1.5, 8, Math.PI * 1.15, Math.PI * 1.55); ctx.stroke();
-  // うしろ側のうで(上腕 + 前腕) + バッティンググローブ
+  drawSegs([seg(sx, sy - 1, hdx - 0.5, hdy + 8, 6.4, 5.4, 4.6, 0.5, skin, 1.0, 0.62)]);
+  // えり(ネックバンド)
+  ctx.lineCap = "round"; ctx.lineWidth = 2.6; ctx.strokeStyle = trim;
+  ctx.beginPath(); ctx.moveTo(sx - 6, sy - 3.4); ctx.quadraticCurveTo(sx, sy + 1.6, sx + 6, sy - 3.4); ctx.stroke();
+  ctx.lineWidth = 0.8; ctx.strokeStyle = shade(trim, 0.5);
+  ctx.beginPath(); ctx.moveTo(sx - 6, sy - 2); ctx.quadraticCurveTo(sx, sy + 3, sx + 6, sy - 2); ctx.stroke();
+  drawBatterHead(hdx, hdy, phi * 0.5 - 0.04, LK);
+  // うしろ側のうで(上腕 + 前腕)
   var a1 = ik(slx, sy + 3, gx, gy, ARM1, ARM2, -0.4, 1);
-  limb(slx, sy + 3, a1.ex, a1.ey, a1.tx, a1.ty, 10, jersey, 7, skin);
-  circle(slx, sy + 3, 5.5, jersey);
-  if (w2 <= 0.45) drawBatShape();
+  drawArm(slx, sy + 3, a1, jersey, trim, skin);
+  if (w2 <= 0.45) drawBatShape(gx, gy, th, BL, gh);
   // 前側のうで(両手でバットをにぎる)
   var a2 = ik(srx, sy + 3, gx + dxb * 8, gy + dyb * 8, ARM1, ARM2, 0.4, 1);
-  limb(srx, sy + 3, a2.ex, a2.ey, a2.tx, a2.ty, 10, jersey, 7, skin);
-  circle(srx, sy + 3, 5.5, jersey);
-  circle(a1.tx, a1.ty, 4, glove); circle(a2.tx, a2.ty, 4, glove);
+  drawArm(srx, sy + 3, a2, jersey, trim, skin);
+  drawGlove(a1.tx, a1.ty, th, trim); drawGlove(a2.tx, a2.ty, th, trim);
   ctx.restore();
 }
-// 構えのままの立ち姿(タイトル・結果画面用)。足元(x, y)、大きさ sc
-function drawBatterStand(x, y, sc) {
+// 構えのままの立ち姿(タイトル・結果画面用)。足元(x, y)、大きさ sc。lk=ステージ番号(省略すると今のキャラ)
+function drawBatterStand(x, y, sc, lk) {
+  var keep = lookOverride;
+  if (lk !== undefined) lookOverride = lk;
   ctx.save();
   ctx.translate(x, y); ctx.scale(sc, sc); ctx.translate(-322, -412);
   drawBatter(395, ZONE_Y, null);
   ctx.restore();
+  lookOverride = keep;
 }
 
 // ピッチャー(遠くのマウンド): 7頭身。足元(x, y)、大きさ s(s=1で身長 約145)。
@@ -1755,14 +2133,14 @@ function drawResult() {
   var r = resultInfo, st = STAGES[r.idx];
   if (r.cleared) {
     text("ステージクリア!", 400, 80, 54, "#ffe14d", "center", "#ff6f91");
-    drawBatterStand(400, 352, 0.9);
+    drawBatterStand(400, 352, 0.9, r.idx);
     for (var i = 0; i < 12; i++) {
       var a = time * 1.5 + i * 0.52;
       circle(400 + Math.cos(a) * (130 + (i % 3) * 20), 220 + Math.sin(a) * 60, 5, ["#ff6f91", "#ffd23f", "#6a8cff", "#3ddc60"][i % 4]);
     }
   } else {
     text("ざんねん…", 400, 80, 54, "#ffffff", "center", "#6a5acd");
-    drawBatterStand(400, 352, 0.9);
+    drawBatterStand(400, 352, 0.9, r.idx);
   }
   text(st.name + "   ホームラン " + r.hr + " / " + r.target, 400, 130, 22, "#4a3f8f");
   text("あいて: " + pitcherLabel(r.idx), 640, 192, 14, "#d6336c", "center", null, 200);

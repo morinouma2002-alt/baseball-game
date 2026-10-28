@@ -1,0 +1,31 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>html,body{margin:0;background:#222;overflow:hidden}canvas{display:block;width:100vw;height:100vh}</style></head><body>
+<canvas id="game" width="1600" height="900"></canvas>
+<script>
+var P = {}; location.hash.slice(1).split("&").forEach(function (kv) { var a = kv.split("="); P[a[0]] = a[1]; });
+var Z = parseFloat(P.z || "2"), OX = parseFloat(P.ox || "0"), OY = parseFloat(P.oy || "0");
+var oc = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function (t, o) {
+  var c = oc.call(this, t, o);
+  if (this.id === "game" && !this._s) { this._s = 1; c.scale(Z, Z); c.translate(-OX, -OY); }
+  return c;
+};
+</script>
+<script src="../game.js"></script>
+<script>
+(function () {
+  var H = window.__HRD, st = parseInt(P.stage || "0", 10);
+  if (P.mode === "title") { H.go("title"); }
+  else if (P.mode === "select") { H.go("stageSelect"); }
+  else if (P.mode === "result") {
+    H.startStage(st); H.step(0.8);
+    var s = H.state().g; s.hr = P.fail ? 0 : s.stage.target; s.phase = "result"; s.t = 10; s.out = null; if (P.fail) s.pitchesLeft = 0;
+    H.step(0.05);
+  } else {
+    H.startStage(st); H.step(0.8);
+    if (P.t !== undefined) { H.doSwing(); H.step(parseFloat(P.t)); }
+    else H.step(0.1);
+  }
+  H.setPaused(true);
+})();
+</script></body></html>
